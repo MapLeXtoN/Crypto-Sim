@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { X, Save, Lock, RefreshCcw, Trash2, AlertTriangle } from 'lucide-react';
 import { updateProfile, updatePassword } from 'firebase/auth';
 
-const UserProfileModal = ({ user, onClose, resetAccount, setUser }) => {
+const UserProfileSet = ({ user, onClose, resetAccount, setUser }) => {
     const [displayName, setDisplayName] = useState(user.displayName || '');
     const [newPassword, setNewPassword] = useState('');
     const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
