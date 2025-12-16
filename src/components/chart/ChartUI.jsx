@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { 
     RefreshCw, AlertTriangle, ChevronDown, Star, 
     Trash2, PlayCircle, Activity, Check, Settings, 
-    PenTool, MousePointer2, Magnet // 🔥 引入 Magnet Icon
+    PenTool, MousePointer2, Magnet 
 } from 'lucide-react';
 import { ALL_INTERVALS } from '../../constants'; 
 import IndicatorSettingsModal from './IndicatorSettingsModal';
@@ -38,7 +38,6 @@ const ChartUI = ({
     clearAllShapes, 
     containerRef,
     
-    // 🔥 接收磁鐵狀態
     magnetMode,
     setMagnetMode,
 
@@ -52,25 +51,35 @@ const ChartUI = ({
             {/* Toolbar 工具列 */}
             <div className="flex justify-between items-center px-2 py-2 bg-[#131722] border-b border-[#2b3139]">
                 
-                {/* Left: 時間週期 */}
-                <div className="flex items-center gap-3 p-1 rounded bg-[#2b3139]">
+                {/* Left: 時間週期 (修改重點區) */}
+                <div className="flex items-center gap-2 p-1 rounded bg-[#2b3139]">
                     <span className="text-xs text-gray-400 font-medium ml-1">時間</span>
-                    <div className="w-[1px] h-4 bg-[#474d57]"></div>
-                    <div className="relative flex items-center gap-2">
-                        <button onClick={() => setShowTimeMenu(!showTimeMenu)} className={`p-1 hover:bg-[#474d57] rounded ${showTimeMenu ? 'text-yellow-500' : 'text-gray-400'}`}>
-                            <ChevronDown size={16} />
+                    <div className="w-[1px] h-4 bg-[#474d57] mx-1"></div>
+                    
+                    {/* 1. 下拉選單按鈕 (保留，用於選擇非最愛的週期) */}
+                    <div className="relative">
+                        <button 
+                            onClick={() => setShowTimeMenu(!showTimeMenu)} 
+                            className={`p-1.5 hover:bg-[#474d57] rounded flex items-center gap-1 ${showTimeMenu ? 'text-[#f0b90b]' : 'text-gray-400'}`}
+                            title="所有週期"
+                        >
+                            <ChevronDown size={14} />
                         </button>
-                        <span className="text-sm font-bold min-w-[30px] text-center text-[#eaecef]">{timeframe}</span>
                         
+                        {/* 下拉選單內容 */}
                         {showTimeMenu && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowTimeMenu(false)} />
                                 <div className="absolute top-full left-0 mt-1 w-40 bg-[#1e2329] border border-[#474d57] rounded shadow-xl z-50 py-1">
                                     {ALL_INTERVALS.map((item) => (
-                                        <div key={item.value} onClick={() => { setTimeframe(item.value); setShowTimeMenu(false); }} className="flex justify-between px-3 py-2 hover:bg-[#2b3139] cursor-pointer text-xs text-[#eaecef]">
+                                        <div 
+                                            key={item.value} 
+                                            onClick={() => { setTimeframe(item.value); setShowTimeMenu(false); }} 
+                                            className={`flex justify-between px-3 py-2 hover:bg-[#2b3139] cursor-pointer text-xs ${timeframe === item.value ? 'text-[#f0b90b] font-bold' : 'text-[#eaecef]'}`}
+                                        >
                                             <span>{item.label}</span>
                                             <div onClick={(e) => { e.stopPropagation(); toggleFavorite(item.value); }}>
-                                                <Star size={12} fill={favorites.includes(item.value) ? "#f0b90b" : "none"} className="text-gray-500 hover:text-[#f0b90b]" />
+                                                <Star size={12} fill={favorites.includes(item.value) ? "#f0b90b" : "none"} className={favorites.includes(item.value) ? "text-[#f0b90b]" : "text-gray-500 hover:text-[#f0b90b]"} />
                                             </div>
                                         </div>
                                     ))}
@@ -78,15 +87,43 @@ const ChartUI = ({
                             </>
                         )}
                     </div>
+
+                    {/* 🔥 2. 最愛週期快捷鍵 (新增部分) */}
+                    {favorites && favorites.length > 0 && (
+                        <div className="flex items-center gap-1">
+                            {/* 根據 constants 的順序排序 favorites，確保 15m 在 1h 前面 (選擇性優化，這裡直接 map 也可以) */}
+                            {favorites.map(fav => (
+                                <button
+                                    key={fav}
+                                    onClick={() => setTimeframe(fav)}
+                                    className={`px-2 py-1 text-xs font-bold rounded transition-colors ${
+                                        timeframe === fav 
+                                            ? 'text-[#f0b90b] bg-[#474d57]' // 當前選中
+                                            : 'text-[#848e9c] hover:text-[#eaecef] hover:bg-[#363c45]' // 未選中
+                                    }`}
+                                >
+                                    {fav}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* 如果當前選的週期不在最愛列表裡，額外顯示出來，讓使用者知道現在是哪個週期 */}
+                    {!favorites.includes(timeframe) && (
+                        <>
+                            <div className="w-[1px] h-3 bg-[#474d57] mx-1"></div>
+                            <span className="text-xs font-bold text-[#f0b90b] px-2">{timeframe}</span>
+                        </>
+                    )}
                 </div>
                 
-                {/* Middle: 工具區 */}
+                {/* Middle: 工具區 (畫圖/指標/磁鐵) */}
                 <div className="flex gap-2 items-center">
                     
-                    {/* 1. 畫圖工具選單 */}
+                    {/* 畫圖工具 */}
                     <div className="relative">
                         <div className="flex bg-[#2b3139] p-1 rounded items-center gap-1">
-                            {/* 🔥 磁鐵按鈕 (新增) */}
+                            {/* 磁鐵 */}
                             <button 
                                 onClick={() => setMagnetMode(!magnetMode)}
                                 title={magnetMode ? "關閉磁鐵" : "開啟磁鐵"}
@@ -152,7 +189,7 @@ const ChartUI = ({
 
                     <div className="w-[1px] h-4 bg-[#474d57]"></div>
 
-                    {/* 2. 指標 */}
+                    {/* 指標 */}
                     <div className="relative">
                         <button title="技術指標" onClick={() => setShowIndicatorMenu(!showIndicatorMenu)} className={`flex items-center gap-1 px-2 py-1.5 rounded bg-[#2b3139] text-xs font-bold transition-colors ${showIndicatorMenu ? 'text-[#f0b90b]' : 'text-gray-400 hover:text-white'}`}>
                             <Activity size={16} /><span>指標</span><ChevronDown size={12} />
@@ -191,7 +228,7 @@ const ChartUI = ({
 
                     <div className="w-[1px] h-4 bg-[#474d57]"></div>
 
-                    {/* 3. 垃圾桶 */}
+                    {/* 垃圾桶 */}
                     <button 
                         title="清除所有畫圖" 
                         onClick={clearAllShapes} 
