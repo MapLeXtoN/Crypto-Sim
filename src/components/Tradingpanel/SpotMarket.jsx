@@ -1,9 +1,10 @@
+// src/components/Tradingpanel/SpotMarket.jsx
 import React from 'react';
-import { XCircle, Info, Wallet } from 'lucide-react';
+import { XCircle, Wallet } from 'lucide-react';
 
-const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calculatePnL }) => {
+const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calculatePnL, marketPrices = {} }) => {
     
-    // 1. 現貨資產表格 (原本缺少的)
+    // 1. 現貨資產表格
     const renderAssetsTable = (positions) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]">
@@ -18,9 +19,12 @@ const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calc
             </thead>
             <tbody>
                 {positions.filter(p => p.mode === 'spot').map(pos => {
-                    const value = pos.size * currentPrice;
-                    const pnl = (currentPrice - pos.entryPrice) * pos.size;
-                    const pnlPercent = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+                    // 🔥 使用全市場價格，如果該幣種還沒抓到價格，暫用 entryPrice (PnL=0)
+                    const realTimePrice = marketPrices[pos.symbol] || pos.entryPrice;
+                    
+                    const value = pos.size * realTimePrice;
+                    const pnl = (realTimePrice - pos.entryPrice) * pos.size;
+                    const pnlPercent = ((realTimePrice - pos.entryPrice) / pos.entryPrice) * 100;
                     
                     return (
                         <tr key={pos.id} className="border-b border-[#2b3139] hover:bg-[#2b3139]">
@@ -50,7 +54,7 @@ const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calc
         </table>
     );
 
-    // 2. 現貨掛單表格
+    // 2. 現貨掛單表格 (保持不變)
     const renderOrdersTable = (orders) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]">
@@ -85,7 +89,7 @@ const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calc
         </table>
     );
 
-    // 3. 現貨歷史紀錄
+    // 3. 歷史紀錄 (保持不變)
     const renderHistoryTable = (history) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]">
@@ -118,7 +122,7 @@ const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calc
         </table>
     );
 
-    // 4. 機器人狀態 (如果有的話)
+    // 4. 機器人 (修正價格)
     const renderBotTable = (positions) => (
         <div>
             <div className="bg-[#1e2329] px-4 py-1 text-xs text-[#f0b90b] font-bold border-b border-[#2b3139]">運行中機器人</div>
@@ -126,7 +130,8 @@ const SpotView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calc
                 <thead className="bg-[#2b3139] text-[#848e9c]"><tr><th className="pl-4 py-1.5">策略名稱</th><th>幣種</th><th>投入金額</th><th>利潤</th><th>操作</th></tr></thead>
                 <tbody>
                     {positions.filter(p => p.mode === 'grid').map(pos => {
-                         const profit = calculatePnL(pos, currentPrice);
+                         const realTimePrice = marketPrices[pos.symbol] || pos.entryPrice;
+                         const profit = calculatePnL(pos, realTimePrice);
                          return (
                             <tr key={pos.id} className="border-b border-[#2b3139] hover:bg-[#2b3139]">
                                 <td className="pl-4 py-2 text-[#f0b90b]">現貨網格</td>

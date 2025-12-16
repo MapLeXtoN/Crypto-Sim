@@ -4,8 +4,7 @@ import ChangeCoin from './ChangeCoin';
 import UserProfile from './UserProfile';
 import UserProfileSet from './UserProfileSet';
 
-// 🔥 注意：新增 positions 給 UserProfileSet 使用
-const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetAccount, setUser, history = [], positions = [] }) => {
+const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetAccount, setUser, history = [], positions = [], marketPrices = {} }) => {
   const [showSettings, setShowSettings] = useState(false);
 
   return (
@@ -19,12 +18,11 @@ const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetA
           />
 
           {/* 右側：使用者資訊與資產 */}
-          <div>
+          <div onClick={() => setShowSettings(true)} className="cursor-pointer hover:opacity-80 transition-opacity">
               <UserProfile 
                   user={user} 
                   equity={equity} 
-                  balance={balance}
-                  onOpenSettings={() => setShowSettings(true)} 
+                  balance={balance} 
               />
           </div>
       </header>
@@ -37,13 +35,14 @@ const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetA
             resetAccount={resetAccount}
             history={history}
             
-            // 🔥 傳遞資產相關數據
             equity={equity}
             balance={balance}
-            positions={positions}       // 傳入持倉資料以顯示列表
-            currentPrice={currentPrice} // 傳入即時價格以計算 ROI
-            currentSymbol={symbol}      // 傳入當前幣種以判斷是否計算
+            positions={positions}       
+            currentPrice={currentPrice} 
             
+            // 🔥 傳遞 marketPrices，讓設定頁面也能知道所有幣種的即時價格
+            marketPrices={marketPrices} 
+
             onClose={() => setShowSettings(false)}
         />
       )}

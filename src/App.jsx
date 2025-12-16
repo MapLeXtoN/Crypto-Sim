@@ -24,6 +24,9 @@ export default function App() {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [balance, setBalance] = useState(INITIAL_BALANCE);
   
+  // 🔥 新增：儲存全市場最新價格 (Map結構: { "BTCUSDT": 90000, "ETHUSDT": 3000 })
+  const [marketPrices, setMarketPrices] = useState({});
+
   const [positions, setPositions] = useState([]); 
   const [orders, setOrders] = useState([]);       
   const [history, setHistory] = useState([]);     
@@ -34,8 +37,6 @@ export default function App() {
   const [side, setSide] = useState('long');
   const [amount, setAmount] = useState('');
   const [leverage, setLeverage] = useState(10);
-  
-  // 🔥 新增：合約下單模式 ('value' = 按價值, 'cost' = 按本金)
   const [futuresInputMode, setFuturesInputMode] = useState('value');
 
   const [gridLevels, setGridLevels] = useState(10);
@@ -103,6 +104,28 @@ export default function App() {
     }
   }, [balance, positions, orders, history, favorites, user, authLoading]);
 
+  // 🔥 新增：背景抓取全市場價格 (每 3 秒更新一次)
+  useEffect(() => {
+    const fetchMarketPrices = async () => {
+        try {
+            // 使用 Binance Ticker API 獲取所有幣種價格
+            const res = await fetch('https://data-api.binance.vision/api/v3/ticker/price');
+            const data = await res.json();
+            const priceMap = {};
+            data.forEach(item => {
+                priceMap[item.symbol] = parseFloat(item.price);
+            });
+            setMarketPrices(priceMap);
+        } catch (error) {
+            // console.error("Market prices fetch failed", error);
+        }
+    };
+    
+    fetchMarketPrices(); // 初次執行
+    const interval = setInterval(fetchMarketPrices, 3000); // 每 3 秒更新
+    return () => clearInterval(interval);
+  }, []);
+
   const toggleFavorite = (interval) => {
       setFavorites(prev => {
           if (prev.includes(interval)) return prev.filter(item => item !== interval);
@@ -132,7 +155,7 @@ export default function App() {
       }
   };
 
-  // API Fetching
+  // K-Line Data Fetching (Current Symbol)
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
@@ -186,13 +209,11 @@ export default function App() {
     };
   }, [symbol, timeframe]);
 
-  // Trading Logic
   const handleTrade = () => {
     const executionPrice = orderType === 'limit' ? parseFloat(priceInput) : currentPrice;
     const val = parseFloat(amount);
     if (!val || val <= 0) return alert('請輸入有效數量');
 
-    // 網格交易處理
     if (tradeMode === 'grid') {
         const totalInvestment = val;
         if (totalInvestment > balance) return alert('資金不足');
@@ -207,38 +228,30 @@ export default function App() {
         return;
     }
 
-    // 🔥 核心修改：下單計算邏輯 (現貨 vs 合約[按價值/按本金])
     let usdtValue, coinSize, margin;
 
     if (tradeMode === 'spot') {
-        // 現貨模式 (無槓桿)
         usdtValue = amountType === 'usdt' ? val : val * executionPrice;
         coinSize = amountType === 'usdt' ? val / executionPrice : val;
         margin = usdtValue;
     } else {
-        // 合約模式 (tradeMode === 'futures')
         if (amountType === 'coin') {
-            // 如果輸入單位是幣(Coin)，則無視本金/價值模式，直接算
             coinSize = val;
             usdtValue = val * executionPrice;
             margin = usdtValue / leverage;
         } else {
-            // 輸入單位是 USDT
             if (futuresInputMode === 'cost') {
-                // 🔥 按本金買入：輸入的 val 就是我要出的錢 (Margin)
                 margin = val;
-                usdtValue = margin * leverage; // 總倉位價值放大
+                usdtValue = margin * leverage;
                 coinSize = usdtValue / executionPrice;
             } else {
-                // 🔥 按價值買入 (預設)：輸入的 val 是總倉位價值
                 usdtValue = val;
-                margin = usdtValue / leverage; // 實際出的錢縮小
+                margin = usdtValue / leverage;
                 coinSize = usdtValue / executionPrice;
             }
         }
     }
     
-    // 檢查餘額
     if (margin > balance) return alert(`資金不足！需要保證金: ${margin.toFixed(2)} USDT`);
 
     if (orderType === 'limit') {
@@ -248,7 +261,6 @@ export default function App() {
           const newPos = { id: Date.now(), symbol, mode: tradeMode, side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, margin, isBot: false };
           setPositions(prev => [newPos, ...prev]);
     }
-    
     setBalance(p => p - margin);
     setAmount('');
   };
@@ -256,10 +268,14 @@ export default function App() {
   const closePosition = (id) => {
     const pos = positions.find(p => p.id === id);
     if (!pos) return;
-    const diff = pos.side === 'long' ? (currentPrice - pos.entryPrice) : (pos.entryPrice - currentPrice);
-    let pnl = (pos.mode === 'spot') ? (currentPrice - pos.entryPrice) * pos.size : diff * pos.size;
+    // 平倉時使用 marketPrices 裡的最新價格，如果沒有則用 currentPrice (剛好是當前幣種)
+    const exitPrice = marketPrices[pos.symbol] || currentPrice;
+    
+    const diff = pos.side === 'long' ? (exitPrice - pos.entryPrice) : (pos.entryPrice - exitPrice);
+    let pnl = (pos.mode === 'spot') ? (exitPrice - pos.entryPrice) * pos.size : diff * pos.size;
+    
     setBalance(p => p + pos.margin + pnl);
-    const historyItem = { ...pos, closePrice: currentPrice, pnl, exitTime: new Date().toLocaleTimeString(), type: 'position' };
+    const historyItem = { ...pos, closePrice: exitPrice, pnl, exitTime: new Date().toLocaleTimeString(), type: 'position' };
     setHistory(prev => [historyItem, ...prev]);
     setPositions(p => p.filter(x => x.id !== id));
   };
@@ -267,7 +283,6 @@ export default function App() {
   const cancelOrder = (id) => {
       const order = orders.find(o => o.id === id);
       if (!order) return;
-      // 取消訂單退回的錢：若是合約，退回保證金；若是現貨，退回全額
       const refund = order.mode === 'futures' ? (order.amount / order.leverage) : order.amount;
       setBalance(p => p + refund);
       setHistory(prev => [{ ...order, status: 'canceled', exitTime: new Date().toLocaleTimeString(), type: 'order' }, ...prev]);
@@ -279,8 +294,11 @@ export default function App() {
       return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * pos.size;
   };
   
+  // 🔥 修正總資產計算：使用 marketPrices 確保不同幣種的資產價值正確
   const equity = balance + positions.reduce((acc, pos) => {
-      return acc + pos.margin + calculatePnL(pos, currentPrice);
+      // 優先使用 marketPrices[pos.symbol]，如果還沒抓到資料，暫時用 entryPrice (PnL=0) 避免資產暴跌
+      const realTimePrice = marketPrices[pos.symbol] || pos.entryPrice;
+      return acc + pos.margin + calculatePnL(pos, realTimePrice);
   }, 0);
 
   const filteredData = { data: { pos: positions, ord: orders, history: history } };
@@ -301,6 +319,8 @@ export default function App() {
         resetAccount={resetAccount}
         history={history}
         positions={positions}
+        // 🔥 將 marketPrices 傳給 Header，讓 UserProfileSet 也能使用
+        marketPrices={marketPrices} 
       />
       
       <div className="flex flex-1 overflow-hidden">
@@ -317,11 +337,7 @@ export default function App() {
             orderType={orderType} setOrderType={setOrderType} priceInput={priceInput} setPriceInput={setPriceInput} currentPrice={currentPrice}
             amount={amount} setAmount={setAmount} amountType={amountType} setAmountType={setAmountType}
             leverage={leverage} setLeverage={setLeverage} balance={balance} handleTrade={handleTrade}
-            
-            // 🔥 傳遞新的 props 給 TradingPanel
-            futuresInputMode={futuresInputMode}
-            setFuturesInputMode={setFuturesInputMode}
-
+            futuresInputMode={futuresInputMode} setFuturesInputMode={setFuturesInputMode}
             gridLevels={gridLevels} setGridLevels={setGridLevels} gridDirection={gridDirection} setGridDirection={setGridDirection}
             gridLowerPrice={gridLowerPrice} setGridLowerPrice={setGridLowerPrice} gridUpperPrice={gridUpperPrice} setGridUpperPrice={setGridUpperPrice}
             reserveMargin={reserveMargin} setReserveMargin={setReserveMargin}
@@ -330,6 +346,8 @@ export default function App() {
       <TransactionDetails 
          mainTab={mainTab} setMainTab={setMainTab} subTab={subTab} setSubTab={setSubTab}
          filteredData={filteredData} currentPrice={currentPrice} closePosition={closePosition} cancelOrder={cancelOrder} calculatePnL={calculatePnL}
+         // 🔥 將 marketPrices 傳給交易列表
+         marketPrices={marketPrices}
       />
     </div>
   );

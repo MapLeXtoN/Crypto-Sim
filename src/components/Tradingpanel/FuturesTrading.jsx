@@ -1,9 +1,10 @@
+// src/components/Tradingpanel/FuturesTrading.jsx
 import React from 'react';
 import { XCircle } from 'lucide-react';
 
-const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calculatePnL }) => {
+const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calculatePnL, marketPrices = {} }) => {
 
-    // 1. 合約倉位表格 (包含槓桿、強平、保證金)
+    // 1. 合約倉位表格
     const renderPositionsTable = (positions) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]">
@@ -21,9 +22,11 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
             </thead>
             <tbody>
                 {positions.filter(p => p.mode === 'futures').map(pos => {
-                    const pnl = calculatePnL(pos, currentPrice);
+                    // 🔥 使用全市場價格
+                    const realTimePrice = marketPrices[pos.symbol] || pos.entryPrice;
+                    
+                    const pnl = calculatePnL(pos, realTimePrice);
                     const roe = (pnl / pos.margin) * 100;
-                    // 簡單的強平價格估算
                     const liqPrice = pos.side === 'long' 
                         ? pos.entryPrice * (1 - 1/pos.leverage) 
                         : pos.entryPrice * (1 + 1/pos.leverage);
@@ -39,7 +42,10 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                             </td>
                             <td>{pos.size.toFixed(4)}</td>
                             <td>{pos.entryPrice.toFixed(2)}</td>
-                            <td>{currentPrice.toFixed(2)}</td>
+                            
+                            {/* 顯示該幣種的即時價格 */}
+                            <td>{realTimePrice.toFixed(2)}</td>
+                            
                             <td className="text-[#f0b90b]">{liqPrice > 0 ? liqPrice.toFixed(2) : '-'}</td>
                             <td>{pos.margin.toFixed(2)}</td>
                             <td>
@@ -62,7 +68,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
         </table>
     );
 
-    // 2. 合約掛單表格
+    // 2. 合約掛單 (保持不變)
     const renderOrdersTable = (orders) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]">
@@ -99,7 +105,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
         </table>
     );
 
-    // 3. 合約歷史表格
+    // 3. 歷史紀錄 (保持不變)
     const renderHistoryTable = (history) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]">

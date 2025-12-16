@@ -1,10 +1,10 @@
 // src/components/TOP/UserProfileSet.jsx
 import React, { useState, useMemo } from 'react';
-import { X, Save, Lock, RefreshCcw, AlertTriangle, Upload, Download, FileText, Wallet, TrendingUp } from 'lucide-react';
+import { X, Save, Lock, RefreshCcw, Upload, Download, FileText, Wallet, TrendingUp } from 'lucide-react';
 import { updateProfile, updatePassword } from 'firebase/auth';
 import { formatMoney } from '../../utils'; 
 
-const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], equity, balance, positions = [], currentPrice, currentSymbol }) => {
+const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], equity, balance, positions = [], currentPrice, marketPrices = {} }) => {
     const [displayName, setDisplayName] = useState(user.displayName || '');
     const [newPassword, setNewPassword] = useState('');
     const [photoURL, setPhotoURL] = useState(user.photoURL || '');
@@ -81,7 +81,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         }
     };
 
-    // 🔥 關鍵邏輯：將 4000+ 筆資料「合併」成每個幣種一行
+    // 聚合現貨資產
     const aggregatedSpotAssets = useMemo(() => {
         const grouped = positions
             .filter(p => p.mode === 'spot')
@@ -94,14 +94,12 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                     };
                 }
                 acc[pos.symbol].size += pos.size;
-                // 總成本 = 單價 * 數量 的累加
                 acc[pos.symbol].totalCost += (pos.size * pos.entryPrice);
                 return acc;
             }, {});
 
         return Object.values(grouped).map(item => ({
             ...item,
-            // 平均價格 = 總成本 / 總數量
             avgPrice: item.totalCost / item.size
         }));
     }, [positions]);
@@ -145,7 +143,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                         </div>
                     </div>
 
-                    {/* 現貨持倉詳情 (合併顯示) */}
+                    {/* 現貨持倉詳情 */}
                     <div className="space-y-3">
                         <label className="text-xs font-bold text-[#f0b90b] uppercase tracking-wide flex items-center gap-1">
                             <TrendingUp size={14} /> 現貨持倉 (Spot Assets)
@@ -162,10 +160,11 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                 </thead>
                                 <tbody>
                                     {aggregatedSpotAssets.length > 0 ? aggregatedSpotAssets.map(pos => {
-                                        const isCurrentSymbol = pos.symbol === currentSymbol;
-                                        const displayPrice = isCurrentSymbol ? currentPrice : pos.avgPrice;
-                                        const value = pos.size * displayPrice;
-                                        const roi = ((displayPrice - pos.avgPrice) / pos.avgPrice) * 100;
+                                        // 🔥 使用全市場價格計算，不再受當前看盤幣種限制
+                                        const realTimePrice = marketPrices[pos.symbol] || pos.avgPrice;
+                                        
+                                        const value = pos.size * realTimePrice;
+                                        const roi = ((realTimePrice - pos.avgPrice) / pos.avgPrice) * 100;
 
                                         return (
                                             <tr key={pos.symbol} className="border-b border-[#474d57]/50 hover:bg-[#363c45]">
@@ -175,13 +174,9 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                                 <td>
                                                     <div className="flex flex-col">
                                                         <span>${value.toFixed(2)}</span>
-                                                        {isCurrentSymbol ? (
-                                                            <span className={`text-[10px] ${roi >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}`}>
-                                                                {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-[#848e9c] text-[10px] transform scale-90 origin-left">切換幣種以更新</span>
-                                                        )}
+                                                        <span className={`text-[10px] ${roi >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}`}>
+                                                            {roi >= 0 ? '+' : ''}{roi.toFixed(2)}%
+                                                        </span>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -196,7 +191,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
 
                     <div className="border-t border-[#2b3139]"></div>
 
-                    {/* 個人資料 */}
+                    {/* 個人資料 & 安全設定 & 匯出 & 重置 (保持不變) */}
                     <div className="flex gap-4 items-start">
                         <div className="relative group cursor-pointer shrink-0" onClick={handleAvatarChange}>
                             <div className="w-16 h-16 rounded-full bg-[#2b3139] border border-[#474d57] overflow-hidden">
@@ -209,52 +204,34 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                         <div className="flex-1 space-y-2">
                             <label className="text-xs font-bold text-[#848e9c]">顯示名稱</label>
                             <div className="flex gap-2">
-                                <input 
-                                    type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} 
-                                    className="flex-1 bg-[#2b3139] border border-[#474d57] rounded px-3 py-1.5 text-white focus:border-[#f0b90b] outline-none text-sm"
-                                />
+                                <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="flex-1 bg-[#2b3139] border border-[#474d57] rounded px-3 py-1.5 text-white focus:border-[#f0b90b] outline-none text-sm" />
                                 <button onClick={handleUpdateProfile} className="bg-[#f0b90b] hover:bg-[#d9a506] text-black px-3 rounded font-bold text-xs"><Save size={14}/></button>
                             </div>
                         </div>
                     </div>
 
-                    {/* 安全設定 */}
                     <div className="space-y-2">
                         <label className="text-xs font-bold text-[#848e9c] flex items-center gap-1"><Lock size={12} /> 修改密碼</label>
                         <div className="flex gap-2">
-                            <input 
-                                type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="輸入新密碼"
-                                className="flex-1 bg-[#2b3139] border border-[#474d57] rounded px-3 py-1.5 text-white focus:border-[#f0b90b] outline-none text-sm"
-                            />
+                            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="輸入新密碼" className="flex-1 bg-[#2b3139] border border-[#474d57] rounded px-3 py-1.5 text-white focus:border-[#f0b90b] outline-none text-sm" />
                             <button onClick={handleChangePassword} className="bg-[#2b3139] hover:bg-[#373d45] border border-[#474d57] text-[#eaecef] px-3 rounded text-xs">修改</button>
                         </div>
                     </div>
 
                     <div className="border-t border-[#2b3139]"></div>
 
-                    {/* 數據管理 */}
                     <div className="flex items-center justify-between bg-[#2b3139] p-3 rounded border border-[#474d57]">
-                        <div className="text-sm text-[#eaecef] flex items-center gap-2">
-                            <FileText size={16} className="text-[#848e9c]" /> 匯出交易歷史紀錄
-                        </div>
-                        <button onClick={handleExportHistory} className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs ${hasExported ? 'bg-[#089981]/20 text-[#089981]' : 'bg-[#474d57] text-white'}`}>
-                            <Download size={12} /> {hasExported ? '已匯出' : '匯出 CSV'}
-                        </button>
+                        <div className="text-sm text-[#eaecef] flex items-center gap-2"><FileText size={16} className="text-[#848e9c]" /> 匯出交易歷史紀錄</div>
+                        <button onClick={handleExportHistory} className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs ${hasExported ? 'bg-[#089981]/20 text-[#089981]' : 'bg-[#474d57] text-white'}`}><Download size={12} /> {hasExported ? '已匯出' : '匯出 CSV'}</button>
                     </div>
 
-                    {/* 重置 */}
                     <div className="pt-2">
                         {!showResetConfirm ? (
-                            <button onClick={handleResetClick} className="w-full py-2 bg-[#F23645]/10 hover:bg-[#F23645]/20 border border-[#F23645]/50 text-[#F23645] rounded text-sm flex items-center justify-center gap-2">
-                                <RefreshCcw size={14} /> 重置模擬帳戶
-                            </button>
+                            <button onClick={handleResetClick} className="w-full py-2 bg-[#F23645]/10 hover:bg-[#F23645]/20 border border-[#F23645]/50 text-[#F23645] rounded text-sm flex items-center justify-center gap-2"><RefreshCcw size={14} /> 重置模擬帳戶</button>
                         ) : (
                             <div className="bg-[#F23645]/10 border border-[#F23645] rounded p-3 text-center space-y-2">
                                 <p className="text-[#F23645] font-bold text-xs">⚠️ 尚未匯出紀錄！確定要重置嗎？</p>
-                                <div className="flex gap-2 justify-center">
-                                    <button onClick={handleExportHistory} className="px-3 py-1 bg-[#2b3139] border border-[#474d57] text-white rounded text-xs">先匯出</button>
-                                    <button onClick={() => { resetAccount(true, true); onClose(); }} className="px-3 py-1 bg-[#F23645] text-white rounded text-xs">確認重置</button>
-                                </div>
+                                <div className="flex gap-2 justify-center"><button onClick={handleExportHistory} className="px-3 py-1 bg-[#2b3139] border border-[#474d57] text-white rounded text-xs">先匯出</button><button onClick={() => { resetAccount(true, true); onClose(); }} className="px-3 py-1 bg-[#F23645] text-white rounded text-xs">確認重置</button></div>
                             </div>
                         )}
                     </div>
