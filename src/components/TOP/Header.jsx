@@ -4,7 +4,8 @@ import ChangeCoin from './ChangeCoin';
 import UserProfile from './UserProfile';
 import UserProfileSet from './UserProfileSet';
 
-const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetAccount, setUser, history = [], positions = [], marketPrices = {} }) => {
+// 🔥 接收 feeSettings, setFeeSettings
+const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetAccount, setUser, history = [], positions = [], feeSettings, setFeeSettings }) => {
   const [showSettings, setShowSettings] = useState(false);
 
   return (
@@ -18,11 +19,12 @@ const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetA
           />
 
           {/* 右側：使用者資訊與資產 */}
-          <div onClick={() => setShowSettings(true)} className="cursor-pointer hover:opacity-80 transition-opacity">
+          <div>
               <UserProfile 
                   user={user} 
                   equity={equity} 
-                  balance={balance} 
+                  balance={balance}
+                  onOpenSettings={() => setShowSettings(true)} 
               />
           </div>
       </header>
@@ -39,9 +41,11 @@ const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetA
             balance={balance}
             positions={positions}       
             currentPrice={currentPrice} 
+            currentSymbol={symbol}      
             
-            // 🔥 傳遞 marketPrices，讓設定頁面也能知道所有幣種的即時價格
-            marketPrices={marketPrices} 
+            // 🔥 傳入費率設定
+            feeSettings={feeSettings}
+            setFeeSettings={setFeeSettings}
 
             onClose={() => setShowSettings(false)}
         />

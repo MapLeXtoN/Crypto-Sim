@@ -1,18 +1,16 @@
 // src/App.jsx
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { INITIAL_BALANCE } from './constants';
 import { generateMockData } from './utils';
 
-// Import Components
 import LoginView from './components/LoginView';
 import Header from './components/TOP/Header';
 import ChartContainer from './components/chart/ChartContainer';
-import TransactionDetails from './components/Tradingpanel/Transactiondetails';
-import TradingPanel from './components/TradingPanel';
+import TransactionDetails from './components/PositionManagement/PositionManagement';
+import TradingPanel from './components/TradingPanel/TradingPanel';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -24,21 +22,24 @@ export default function App() {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [balance, setBalance] = useState(INITIAL_BALANCE);
   
-  // 🔥 新增：儲存全市場最新價格 (Map結構: { "BTCUSDT": 90000, "ETHUSDT": 3000 })
-  const [marketPrices, setMarketPrices] = useState({});
-
   const [positions, setPositions] = useState([]); 
   const [orders, setOrders] = useState([]);       
   const [history, setHistory] = useState([]);     
   const [klineData, setKlineData] = useState([]);
   
-  // Trading UI State
+  // 🔥 移除 activeGridId，這是導致黑屏的主因
+  
+  const [feeSettings, setFeeSettings] = useState({
+      vipLevel: 'VIP0', spotMaker: 0.1, spotTaker: 0.1, futuresMaker: 0.02, futuresTaker: 0.05, fundingRate: 0.01
+  });
+
   const [tradeMode, setTradeMode] = useState('spot');
   const [side, setSide] = useState('long');
   const [amount, setAmount] = useState('');
   const [leverage, setLeverage] = useState(10);
   const [futuresInputMode, setFuturesInputMode] = useState('value');
 
+  const [gridType, setGridType] = useState('spot'); 
   const [gridLevels, setGridLevels] = useState(10);
   const [gridDirection, setGridDirection] = useState('neutral'); 
   const [reserveMargin, setReserveMargin] = useState(false);
@@ -47,84 +48,96 @@ export default function App() {
   const [orderType, setOrderType] = useState('limit'); 
   const [amountType, setAmountType] = useState('usdt'); 
   const [priceInput, setPriceInput] = useState('');
+  
   const [mainTab, setMainTab] = useState('spot'); 
   const [subTab, setSubTab] = useState('positions');
+  
   const [showTimeMenu, setShowTimeMenu] = useState(false);
   const [favorites, setFavorites] = useState(['15m', '1h', '4h', '1d']);
   const [apiError, setApiError] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Auth
+  // Resize Logic
+  const [panelWidth, setPanelWidth] = useState(320);
+  const panelRef = useRef(null);
+  const isResizing = useRef(false);
+
+  const startResizing = useCallback(() => {
+      isResizing.current = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.body.classList.add('resizing'); 
+  }, []);
+
+  const stopResizing = useCallback(() => {
+      if (isResizing.current) {
+          isResizing.current = false;
+          document.body.style.cursor = 'default';
+          document.body.style.userSelect = 'auto';
+          document.body.classList.remove('resizing');
+          if (panelRef.current) setPanelWidth(panelRef.current.clientWidth);
+      }
+  }, []);
+
+  const resize = useCallback((e) => {
+      if (isResizing.current && panelRef.current) {
+          requestAnimationFrame(() => {
+              const newWidth = window.innerWidth - e.clientX;
+              if (newWidth > 250 && newWidth < 800) {
+                  panelRef.current.style.width = `${newWidth}px`;
+              }
+          });
+      }
+  }, []);
+
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-    });
+      window.addEventListener('mousemove', resize);
+      window.addEventListener('mouseup', stopResizing);
+      return () => {
+          window.removeEventListener('mousemove', resize);
+          window.removeEventListener('mouseup', stopResizing);
+      };
+  }, [resize, stopResizing]);
+
+  // Auth & Data
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
     return () => unsubscribe();
   }, []);
 
-  // Data Loading
   useEffect(() => {
     const loadUserData = async () => {
         if (user) {
             try {
-                const userRef = doc(db, "users", user.uid);
-                const docSnap = await getDoc(userRef);
+                const docSnap = await getDoc(doc(db, "users", user.uid));
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     setBalance(data.balance || INITIAL_BALANCE);
-                    setPositions(data.positions || []);
+                    const safePositions = (data.positions || []).filter(p => p && p.id);
+                    setPositions(safePositions);
                     setOrders(data.orders || []);
                     setHistory((data.history || []).slice(0, 100));
                     if (data.favorites) setFavorites(data.favorites);
+                    if (data.feeSettings) setFeeSettings(data.feeSettings);
                 }
-            } catch (err) { console.error(err); }
+            } catch (err) {}
         }
     };
     loadUserData();
   }, [user]);
 
-  // Data Saving
   useEffect(() => {
     if (user && !authLoading) {
-        const saveData = async () => {
+        const timer = setTimeout(async () => {
             try {
-                const userRef = doc(db, "users", user.uid);
-                await updateDoc(userRef, { 
-                    balance, 
-                    positions, 
-                    orders, 
-                    history: history.slice(0, 100), 
-                    favorites
+                await updateDoc(doc(db, "users", user.uid), { 
+                    balance, positions, orders, history: history.slice(0, 100), favorites, feeSettings
                 });
             } catch (err) {}
-        };
-        const timer = setTimeout(saveData, 2000); 
+        }, 2000); 
         return () => clearTimeout(timer);
     }
-  }, [balance, positions, orders, history, favorites, user, authLoading]);
-
-  // 🔥 新增：背景抓取全市場價格 (每 3 秒更新一次)
-  useEffect(() => {
-    const fetchMarketPrices = async () => {
-        try {
-            // 使用 Binance Ticker API 獲取所有幣種價格
-            const res = await fetch('https://data-api.binance.vision/api/v3/ticker/price');
-            const data = await res.json();
-            const priceMap = {};
-            data.forEach(item => {
-                priceMap[item.symbol] = parseFloat(item.price);
-            });
-            setMarketPrices(priceMap);
-        } catch (error) {
-            // console.error("Market prices fetch failed", error);
-        }
-    };
-    
-    fetchMarketPrices(); // 初次執行
-    const interval = setInterval(fetchMarketPrices, 3000); // 每 3 秒更新
-    return () => clearInterval(interval);
-  }, []);
+  }, [balance, positions, orders, history, favorites, feeSettings, user, authLoading]);
 
   const toggleFavorite = (interval) => {
       setFavorites(prev => {
@@ -149,67 +162,91 @@ export default function App() {
                   orders: clearHistory ? [] : orders,
                   history: clearHistory ? [] : history
               });
-          } catch (e) {
-              console.error("Reset failed:", e);
-          }
+          } catch (e) { console.error("Reset failed:", e); }
       }
   };
 
-  // K-Line Data Fetching (Current Symbol)
+  // 🔥 網格利潤計算 (保留這個，因為您需要利潤在跑，但不會影響畫面)
+  const updateGridPositions = (price) => {
+      if (!price || isNaN(price)) return;
+
+      setPositions(prevPositions => {
+          let hasChanges = false;
+          const newPositions = prevPositions.map(pos => {
+              if ((pos.mode !== 'grid_spot' && pos.mode !== 'grid_futures') || pos.symbol !== symbol) return pos;
+              if (!pos.gridLines || !Array.isArray(pos.gridLines)) return pos;
+
+              let newGridLines = [...pos.gridLines];
+              let newRealizedProfit = pos.realizedProfit || 0;
+              let triggeredCount = 0;
+
+              newGridLines = newGridLines.map(line => {
+                  if (line.type === 'buy' && price <= line.price) {
+                      triggeredCount++;
+                      return { ...line, type: 'sell', price: line.price * (1 + pos.profitPerGrid) }; 
+                  }
+                  else if (line.type === 'sell' && price >= line.price) {
+                      triggeredCount++;
+                      const profit = (pos.amount / pos.gridLevels) * pos.profitPerGrid;
+                      newRealizedProfit += profit;
+                      return { ...line, type: 'buy', price: line.price * (1 - pos.profitPerGrid) }; 
+                  }
+                  return line;
+              });
+
+              if (triggeredCount > 0) {
+                  hasChanges = true;
+                  return { ...pos, gridLines: newGridLines, realizedProfit: newRealizedProfit };
+              }
+              return pos;
+          });
+          return hasChanges ? newPositions : prevPositions;
+      });
+  };
+
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
-
     const fetchData = async () => {
       try {
-        const url = `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=500`;
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) throw new Error(`API Error: ${res.status}`);
-
+        const res = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=500`, { signal: controller.signal });
+        if (!res.ok) throw new Error();
         const rawData = await res.json();
         const formattedData = rawData.map(d => ({
             timestamp: typeof d[0] === 'string' ? parseInt(d[0]) : d[0],
-            open: parseFloat(d[1]),
-            high: parseFloat(d[2]),
-            low: parseFloat(d[3]),
-            close: parseFloat(d[4]),
-            volume: parseFloat(d[5])
+            open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]), volume: parseFloat(d[5])
         }));
-
         if (isMounted) {
-             setApiError(false);
-             setKlineData(formattedData); 
-             setLoading(false); 
+             setApiError(false); setKlineData(formattedData); setLoading(false); 
              if(formattedData.length > 0) {
-                 const lastPrice = formattedData[formattedData.length - 1].close;
-                 setCurrentPrice(lastPrice);
+                 const newPrice = formattedData[formattedData.length - 1].close;
+                 setCurrentPrice(newPrice);
+                 updateGridPositions(newPrice);
              }
         }
       } catch (err) {
-        if (err.name === 'AbortError') return;
-        if (isMounted) {
+        if (err.name !== 'AbortError' && isMounted) {
             if (klineData.length === 0) {
                 setApiError(true);
-                const mockData = generateMockData(500, currentPrice || 60000);
-                setKlineData(mockData);
-                if(mockData.length > 0) setCurrentPrice(mockData[mockData.length - 1].close);
+                const mock = generateMockData(500, currentPrice || 60000);
+                setKlineData(mock);
+                if(mock.length > 0) {
+                    const newPrice = mock[mock.length - 1].close;
+                    setCurrentPrice(newPrice);
+                    updateGridPositions(newPrice);
+                }
             }
             setLoading(false);
         }
       }
     };
-
     fetchData();
-    const timer = setInterval(() => { fetchData(); }, 6000); 
-
-    return () => { 
-        isMounted = false; 
-        clearInterval(timer);
-        controller.abort(); 
-    };
+    const timer = setInterval(fetchData, 3000);
+    return () => { isMounted = false; clearInterval(timer); controller.abort(); };
   }, [symbol, timeframe]);
 
   const handleTrade = () => {
+    if (!currentPrice || currentPrice <= 0) return alert('價格載入中...');
     const executionPrice = orderType === 'limit' ? parseFloat(priceInput) : currentPrice;
     const val = parseFloat(amount);
     if (!val || val <= 0) return alert('請輸入有效數量');
@@ -217,43 +254,58 @@ export default function App() {
     if (tradeMode === 'grid') {
         const totalInvestment = val;
         if (totalInvestment > balance) return alert('資金不足');
-        const min = parseFloat(gridLowerPrice);
+        const min = parseFloat(gridLowerPrice); 
         const max = parseFloat(gridUpperPrice);
-        if (!min || !max || min >= max) return alert('無效範圍');
+        const levels = parseInt(gridLevels);
+
+        if (!min || !max || min >= max || levels < 2) return alert('無效範圍或格數');
         
-        const newOrder = { id: Date.now(), symbol, mode: 'grid', status: 'active', amount: totalInvestment };
-        setOrders(prev => [newOrder, ...prev]);
+        const priceDiff = max - min;
+        const step = priceDiff / levels;
+        const profitPerGrid = step / min;
+
+        const gridLines = [];
+        for (let i = 1; i < levels; i++) {
+            const linePrice = min + (i * step);
+            gridLines.push({
+                price: linePrice,
+                type: linePrice < currentPrice ? 'buy' : 'sell'
+            });
+        }
+
+        const gridMode = gridType === 'spot' ? 'grid_spot' : 'grid_futures';
+        const newOrder = { 
+            id: Date.now(), symbol, mode: gridMode, status: 'active', 
+            amount: totalInvestment, leverage: gridType === 'futures' ? leverage : 1,
+            gridLower: min, gridUpper: max, gridLevels: levels,
+            gridLines: gridLines, profitPerGrid: profitPerGrid, realizedProfit: 0,
+            entryPrice: currentPrice
+        };
+
+        setPositions(prev => [newOrder, ...prev]);
         setBalance(p => p - totalInvestment);
-        alert('網格已建立');
+        // setActiveGridId(newOrder.id); // 移除自動顯示
+        alert(`${gridType === 'spot' ? '現貨' : '合約'}網格已建立`);
         return;
     }
 
     let usdtValue, coinSize, margin;
-
     if (tradeMode === 'spot') {
         usdtValue = amountType === 'usdt' ? val : val * executionPrice;
         coinSize = amountType === 'usdt' ? val / executionPrice : val;
         margin = usdtValue;
     } else {
         if (amountType === 'coin') {
-            coinSize = val;
-            usdtValue = val * executionPrice;
-            margin = usdtValue / leverage;
+            coinSize = val; usdtValue = val * executionPrice; margin = usdtValue / leverage;
         } else {
             if (futuresInputMode === 'cost') {
-                margin = val;
-                usdtValue = margin * leverage;
-                coinSize = usdtValue / executionPrice;
+                margin = val; usdtValue = margin * leverage; coinSize = usdtValue / executionPrice;
             } else {
-                usdtValue = val;
-                margin = usdtValue / leverage;
-                coinSize = usdtValue / executionPrice;
+                usdtValue = val; margin = usdtValue / leverage; coinSize = usdtValue / executionPrice;
             }
         }
     }
-    
     if (margin > balance) return alert(`資金不足！需要保證金: ${margin.toFixed(2)} USDT`);
-
     if (orderType === 'limit') {
           const newOrder = { id: Date.now(), symbol, mode: tradeMode, type: 'limit', side, price: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, status: 'pending', time: new Date().toLocaleTimeString(), isBot: false };
           setOrders(prev => [newOrder, ...prev]);
@@ -261,28 +313,28 @@ export default function App() {
           const newPos = { id: Date.now(), symbol, mode: tradeMode, side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, margin, isBot: false };
           setPositions(prev => [newPos, ...prev]);
     }
-    setBalance(p => p - margin);
-    setAmount('');
+    setBalance(p => p - margin); setAmount('');
   };
 
   const closePosition = (id) => {
-    const pos = positions.find(p => p.id === id);
-    if (!pos) return;
-    // 平倉時使用 marketPrices 裡的最新價格，如果沒有則用 currentPrice (剛好是當前幣種)
-    const exitPrice = marketPrices[pos.symbol] || currentPrice;
+    const pos = positions.find(p => p.id === id); if (!pos) return;
+    const diff = pos.side === 'long' ? (currentPrice - pos.entryPrice) : (pos.entryPrice - currentPrice);
+    let pnl = (pos.mode === 'spot') ? (currentPrice - pos.entryPrice) * pos.size : diff * pos.size;
     
-    const diff = pos.side === 'long' ? (exitPrice - pos.entryPrice) : (pos.entryPrice - exitPrice);
-    let pnl = (pos.mode === 'spot') ? (exitPrice - pos.entryPrice) * pos.size : diff * pos.size;
-    
-    setBalance(p => p + pos.margin + pnl);
-    const historyItem = { ...pos, closePrice: exitPrice, pnl, exitTime: new Date().toLocaleTimeString(), type: 'position' };
+    if (pos.mode === 'grid_spot' || pos.mode === 'grid_futures') {
+        const floatPnL = calculatePnL(pos, currentPrice);
+        setBalance(p => p + pos.amount + (pos.realizedProfit || 0) + floatPnL); 
+        // 移除 setActiveGridId 呼叫
+    } else { 
+        setBalance(p => p + pos.margin + pnl); 
+    }
+    const historyItem = { ...pos, closePrice: currentPrice, pnl: (pos.realizedProfit || 0) + pnl, exitTime: new Date().toLocaleTimeString(), type: 'position' };
     setHistory(prev => [historyItem, ...prev]);
     setPositions(p => p.filter(x => x.id !== id));
   };
 
   const cancelOrder = (id) => {
-      const order = orders.find(o => o.id === id);
-      if (!order) return;
+      const order = orders.find(o => o.id === id); if (!order) return;
       const refund = order.mode === 'futures' ? (order.amount / order.leverage) : order.amount;
       setBalance(p => p + refund);
       setHistory(prev => [{ ...order, status: 'canceled', exitTime: new Date().toLocaleTimeString(), type: 'order' }, ...prev]);
@@ -290,15 +342,20 @@ export default function App() {
   };
 
   const calculatePnL = (pos, price) => {
+      if (!pos.entryPrice || pos.entryPrice === 0 || !price || isNaN(price)) return 0;
+      if (pos.mode === 'grid_spot') return (price - pos.entryPrice) * ((pos.amount / 2) / pos.entryPrice);
+      if (pos.mode === 'grid_futures') return (price - pos.entryPrice) * ((pos.amount / 2) / pos.entryPrice) * pos.leverage;
       if (pos.mode === 'spot') return (price - pos.entryPrice) * pos.size;
       return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * pos.size;
   };
   
-  // 🔥 修正總資產計算：使用 marketPrices 確保不同幣種的資產價值正確
   const equity = balance + positions.reduce((acc, pos) => {
-      // 優先使用 marketPrices[pos.symbol]，如果還沒抓到資料，暫時用 entryPrice (PnL=0) 避免資產暴跌
-      const realTimePrice = marketPrices[pos.symbol] || pos.entryPrice;
-      return acc + pos.margin + calculatePnL(pos, realTimePrice);
+      const isGrid = pos.mode === 'grid_spot' || pos.mode === 'grid_futures';
+      let pnl = 0;
+      if (pos.symbol === symbol || isGrid) pnl = calculatePnL(pos, currentPrice);
+      if (isNaN(pnl)) pnl = 0;
+      if (isGrid) return acc + pos.amount + (pos.realizedProfit || 0) + pnl;
+      return acc + pos.margin + pnl;
   }, 0);
 
   const filteredData = { data: { pos: positions, ord: orders, history: history } };
@@ -308,46 +365,41 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-[#0b0e11] text-[#eaecef] font-sans overflow-hidden select-none">
-      <Header 
-        symbol={symbol} 
-        setSymbol={setSymbol} 
-        currentPrice={currentPrice} 
-        equity={equity} 
-        balance={balance} 
-        user={user} 
-        setUser={setUser}
-        resetAccount={resetAccount}
-        history={history}
-        positions={positions}
-        // 🔥 將 marketPrices 傳給 Header，讓 UserProfileSet 也能使用
-        marketPrices={marketPrices} 
-      />
+      <Header symbol={symbol} setSymbol={setSymbol} currentPrice={currentPrice} equity={equity} balance={balance} user={user} setUser={setUser} resetAccount={resetAccount} history={history} positions={positions} feeSettings={feeSettings} setFeeSettings={setFeeSettings} />
       
       <div className="flex flex-1 overflow-hidden">
+        {/* ChartContainer 還原：不傳入 activeGrid */}
         <ChartContainer 
             symbol={symbol} timeframe={timeframe} setTimeframe={setTimeframe} 
             klineData={klineData} currentPrice={currentPrice} 
             loading={loading} apiError={apiError}
             showTimeMenu={showTimeMenu} setShowTimeMenu={setShowTimeMenu} 
-            favorites={favorites} 
-            toggleFavorite={toggleFavorite} 
+            favorites={favorites} toggleFavorite={toggleFavorite} 
         />
-        <TradingPanel 
-            tradeMode={tradeMode} setTradeMode={setTradeMode} symbol={symbol} setSymbol={setSymbol} side={side} setSide={setSide}
-            orderType={orderType} setOrderType={setOrderType} priceInput={priceInput} setPriceInput={setPriceInput} currentPrice={currentPrice}
-            amount={amount} setAmount={setAmount} amountType={amountType} setAmountType={setAmountType}
-            leverage={leverage} setLeverage={setLeverage} balance={balance} handleTrade={handleTrade}
-            futuresInputMode={futuresInputMode} setFuturesInputMode={setFuturesInputMode}
-            gridLevels={gridLevels} setGridLevels={setGridLevels} gridDirection={gridDirection} setGridDirection={setGridDirection}
-            gridLowerPrice={gridLowerPrice} setGridLowerPrice={setGridLowerPrice} gridUpperPrice={gridUpperPrice} setGridUpperPrice={setGridUpperPrice}
-            reserveMargin={reserveMargin} setReserveMargin={setReserveMargin}
-        />
+        
+        <div className="w-1 bg-[#2b3139] hover:bg-[#f0b90b] cursor-col-resize z-50 transition-colors flex items-center justify-center group" onMouseDown={startResizing}>
+            <div className="h-8 w-1 bg-transparent group-hover:bg-white/50 rounded"></div>
+        </div>
+
+        <div ref={panelRef} style={{ width: `${panelWidth}px`, flexShrink: 0 }}>
+            <TradingPanel 
+                tradeMode={tradeMode} setTradeMode={setTradeMode} symbol={symbol} setSymbol={setSymbol} side={side} setSide={setSide}
+                orderType={orderType} setOrderType={setOrderType} priceInput={priceInput} setPriceInput={setPriceInput} currentPrice={currentPrice}
+                amount={amount} setAmount={setAmount} amountType={amountType} setAmountType={setAmountType}
+                leverage={leverage} setLeverage={setLeverage} balance={balance} handleTrade={handleTrade}
+                futuresInputMode={futuresInputMode} setFuturesInputMode={setFuturesInputMode}
+                gridType={gridType} setGridType={setGridType}
+                gridLevels={gridLevels} setGridLevels={setGridLevels} gridDirection={gridDirection} setGridDirection={setGridDirection}
+                gridLowerPrice={gridLowerPrice} setGridLowerPrice={setGridLowerPrice} gridUpperPrice={gridUpperPrice} setGridUpperPrice={setGridUpperPrice}
+                reserveMargin={reserveMargin} setReserveMargin={setReserveMargin}
+            />
+        </div>
       </div>
+
+      {/* TransactionDetails 還原：不傳入 activeGridId */}
       <TransactionDetails 
-         mainTab={mainTab} setMainTab={setMainTab} subTab={subTab} setSubTab={setSubTab}
-         filteredData={filteredData} currentPrice={currentPrice} closePosition={closePosition} cancelOrder={cancelOrder} calculatePnL={calculatePnL}
-         // 🔥 將 marketPrices 傳給交易列表
-         marketPrices={marketPrices}
+         mainTab={mainTab} setMainTab={setMainTab} subTab={subTab} setSubTab={setSubTab} 
+         filteredData={filteredData} currentPrice={currentPrice} closePosition={closePosition} cancelOrder={cancelOrder} calculatePnL={calculatePnL} symbol={symbol} 
       />
     </div>
   );
