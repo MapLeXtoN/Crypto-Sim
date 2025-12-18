@@ -10,7 +10,7 @@ import LoginView from './components/LoginView';
 import Header from './components/TOP/Header';
 import ChartContainer from './components/chart/ChartContainer';
 import TransactionDetails from './components/PositionManagement/PositionManagement';
-import TradingPanel from './components/TradingPanel/TradingPanel';
+import TradingPanel from './components/Tradingpanel/TradingPanel';
 
 export default function App() {
   const [user, setUser] = useState(null);
