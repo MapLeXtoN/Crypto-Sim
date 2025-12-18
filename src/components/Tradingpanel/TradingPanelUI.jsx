@@ -15,7 +15,6 @@ const TradingPanelUI = ({
     reserveMargin, setReserveMargin
 }) => {
     return (
-        // 🔥 修改這裡：移除 w-72，改為 w-full h-full，這樣它就會填滿 App.jsx 給它的容器寬度
         <div className="w-full h-full bg-[#1e2329] border-l border-[#2b3139] flex flex-col p-3 gap-3 z-30 overflow-y-auto custom-scrollbar" style={{ cursor: 'default' }}>
            {/* 頂部模式切換 */}
            <div className="flex bg-[#0b0e11] p-1 rounded-md shrink-0">
@@ -39,7 +38,17 @@ const TradingPanelUI = ({
                     <div className="flex bg-[#2b3139] rounded-sm p-0.5"><button onClick={() => setOrderType('limit')} className={`flex-1 py-1 text-xs rounded-sm ${orderType === 'limit' ? 'bg-[#474d57] text-white' : 'text-[#848e9c]'}`}>限價</button><button onClick={() => setOrderType('market')} className={`flex-1 py-1 text-xs rounded-sm ${orderType === 'market' ? 'bg-[#474d57] text-white' : 'text-[#848e9c]'}`}>市價</button></div>
                     <div>
                         <div className="flex justify-between text-xs text-[#848e9c] mb-1"><span>價格</span> <span className="cursor-pointer hover:text-white" onClick={() => setPriceInput(currentPrice.toFixed(2))}>最新: {currentPrice.toFixed(2)}</span></div>
-                        <div className="relative"><input type="number" disabled={orderType === 'market'} value={orderType === 'market' ? currentPrice.toFixed(2) : priceInput} onChange={e => setPriceInput(e.target.value)} className={`w-full bg-[#2b3139] border border-[#474d57] rounded-sm p-2 text-right text-white text-sm focus:border-[#f0b90b] outline-none ${orderType === 'market' ? 'opacity-50 cursor-not-allowed' : ''}`} /><span className="absolute left-2 top-2 text-xs text-[#848e9c]">USDT</span></div>
+                        <div className="relative">
+                            {/* 🔥 修改：text-left (文字靠左), span 改為 right-2 (單位靠右) */}
+                            <input 
+                                type="number" 
+                                disabled={orderType === 'market'} 
+                                value={orderType === 'market' ? currentPrice.toFixed(2) : priceInput} 
+                                onChange={e => setPriceInput(e.target.value)} 
+                                className={`w-full bg-[#2b3139] border border-[#474d57] rounded-sm p-2 text-left text-white text-sm focus:border-[#f0b90b] outline-none ${orderType === 'market' ? 'opacity-50 cursor-not-allowed' : ''}`} 
+                            />
+                            <span className="absolute right-2 top-2 text-xs text-[#848e9c]">USDT</span>
+                        </div>
                     </div>
                 </>
             )}
@@ -63,7 +72,17 @@ const TradingPanelUI = ({
                 
                 <div>
                     <div className="text-xs text-[#848e9c] mb-1">輸入投資額</div>
-                    <div className="relative"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="總投資額" className="w-full bg-[#2b3139] border border-[#474d57] rounded-sm p-2 text-right text-white text-sm focus:border-[#f0b90b] outline-none" /><span className="absolute left-2 top-2 text-xs text-[#848e9c]">USDT</span></div>
+                    <div className="relative">
+                        {/* 🔥 修改：text-left (文字靠左), span 改為 right-2 (單位靠右) */}
+                        <input 
+                            type="number" 
+                            value={amount} 
+                            onChange={e => setAmount(e.target.value)} 
+                            placeholder="總投資額" 
+                            className="w-full bg-[#2b3139] border border-[#474d57] rounded-sm p-2 text-left text-white text-sm focus:border-[#f0b90b] outline-none" 
+                        />
+                        <span className="absolute right-2 top-2 text-xs text-[#848e9c]">USDT</span>
+                    </div>
                     <div className="flex items-center gap-2 mt-2"><input type="checkbox" id="reserveMargin" checked={reserveMargin} onChange={(e) => setReserveMargin(e.target.checked)} className="w-3 h-3 accent-[#f0b90b] cursor-pointer"/><label htmlFor="reserveMargin" className="text-xs text-[#848e9c] cursor-pointer select-none">預留保證金</label></div>
                 </div>
               </div>
@@ -83,7 +102,19 @@ const TradingPanelUI = ({
                         <span>{tradeMode === 'futures' && amountType === 'usdt' ? (futuresInputMode === 'value' ? '倉位價值 (Size)' : '投入本金 (Cost)') : '數量'}</span>
                         <div className="flex gap-2 text-[10px]"><span onClick={() => setAmountType('usdt')} className={`cursor-pointer ${amountType === 'usdt' ? 'text-[#f0b90b] font-bold' : ''}`}>USDT</span>/<span onClick={() => setAmountType('coin')} className={`cursor-pointer ${amountType === 'coin' ? 'text-[#f0b90b] font-bold' : ''}`}>{symbol.replace('USDT', '')}</span></div>
                     </div>
-                    <div className="relative"><input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder={amountType === 'usdt' ? "金額" : "數量"} className="w-full bg-[#2b3139] border border-[#474d57] rounded-sm p-2 text-right text-white text-sm focus:border-[#f0b90b] outline-none" /><span className="absolute left-2 top-2 text-xs text-[#848e9c]">{amountType === 'usdt' ? <DollarSign size={12}/> : <Coins size={12}/>}</span></div>
+                    <div className="relative">
+                        {/* 🔥 修改：text-left (文字靠左), span 改為 right-2 (單位靠右) */}
+                        <input 
+                            type="number" 
+                            value={amount} 
+                            onChange={e => setAmount(e.target.value)} 
+                            placeholder={amountType === 'usdt' ? "金額" : "數量"} 
+                            className="w-full bg-[#2b3139] border border-[#474d57] rounded-sm p-2 text-left text-white text-sm focus:border-[#f0b90b] outline-none" 
+                        />
+                        <span className="absolute right-2 top-2 text-xs text-[#848e9c]">
+                            {amountType === 'usdt' ? <DollarSign size={12}/> : <Coins size={12}/>}
+                        </span>
+                    </div>
                 </div>
             )}
 
