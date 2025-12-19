@@ -1,12 +1,12 @@
 // src/components/TOP/UserProfileSet.jsx
 import React, { useState, useMemo } from 'react';
-import { X, Save, Lock, RefreshCcw, Upload, Download, FileText, Wallet, TrendingUp, DollarSign, Settings, User } from 'lucide-react';
+import { Save, User, DollarSign, Settings, FileText, Download, TrendingUp, RefreshCcw, Upload } from 'lucide-react';
 import { updateProfile, updatePassword } from 'firebase/auth';
 import { formatMoney } from '../../utils'; 
 
 const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], equity, balance, positions = [], currentPrice, currentSymbol, feeSettings, setFeeSettings }) => {
     
-    // 🔥 新增：分頁狀態 ('profile' | 'fees')
+    // 分頁狀態 ('profile' | 'fees')
     const [activeTab, setActiveTab] = useState('profile');
 
     const [displayName, setDisplayName] = useState(user.displayName || '');
@@ -14,7 +14,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
     const [photoURL, setPhotoURL] = useState(user.photoURL || '');
     const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
     
-    // 費率設定暫存狀態 (避免改一個字就更新 App)
+    // 費率設定暫存狀態
     const [tempFees, setTempFees] = useState(feeSettings || {
         vipLevel: 'VIP0',
         spotMaker: 0.1, spotTaker: 0.1,
@@ -22,10 +22,13 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         fundingRate: 0.01
     });
 
+    // 交易所選擇狀態
+    const [selectedExchange, setSelectedExchange] = useState('Custom');
+
     const [hasExported, setHasExported] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-    // 1. 更新個人資料
+    // --- 1. 更新個人資料 ---
     const handleUpdateProfile = async () => {
         if (!displayName.trim()) return;
         try {
@@ -42,7 +45,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         if (url !== null) setPhotoURL(url);
     };
 
-    // 2. 更新密碼
+    // --- 2. 更新密碼 ---
     const handleChangePassword = async () => {
         if (newPassword.length < 6) {
             setStatusMsg({ type: 'error', text: '密碼長度需至少 6 位' });
@@ -61,7 +64,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         }
     };
 
-    // 3. 匯出 CSV
+    // --- 3. 匯出 CSV ---
     const handleExportHistory = () => {
         if (!history || history.length === 0) {
             setStatusMsg({ type: 'error', text: '無交易紀錄可匯出' });
@@ -83,7 +86,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         setStatusMsg({ type: 'success', text: '匯出成功！' });
     };
 
-    // 4. 重置帳號
+    // --- 4. 重置帳號 ---
     const handleResetClick = () => {
         if (!hasExported && history.length > 0) {
             setShowResetConfirm(true);
@@ -93,23 +96,36 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         }
     };
 
-    // 5. 🔥 費率預設值 (VIP Levels)
-    const handleVipChange = (e) => {
-        const vip = e.target.value;
-        let newRates = { ...tempFees, vipLevel: vip };
-        
-        // 模擬各大交易所的 VIP 階梯
-        switch(vip) {
-            case 'VIP0': newRates = { ...newRates, spotMaker: 0.1, spotTaker: 0.1, futuresMaker: 0.02, futuresTaker: 0.05 }; break;
-            case 'VIP1': newRates = { ...newRates, spotMaker: 0.09, spotTaker: 0.1, futuresMaker: 0.016, futuresTaker: 0.04 }; break;
-            case 'VIP2': newRates = { ...newRates, spotMaker: 0.08, spotTaker: 0.1, futuresMaker: 0.014, futuresTaker: 0.035 }; break;
-            case 'VIP3': newRates = { ...newRates, spotMaker: 0.042, spotTaker: 0.06, futuresMaker: 0.01, futuresTaker: 0.032 }; break;
-            default: break;
+    // --- 5. 交易所費率預設值 ---
+    const handleExchangeChange = (e) => {
+        const exchange = e.target.value;
+        setSelectedExchange(exchange);
+
+        let newRates = { ...tempFees };
+
+        switch(exchange) {
+            case 'Binance':
+                newRates = { ...newRates, spotMaker: 0.10, spotTaker: 0.10, futuresMaker: 0.02, futuresTaker: 0.05 };
+                break;
+            case 'MEXC':
+                newRates = { ...newRates, spotMaker: 0.00, spotTaker: 0.02, futuresMaker: 0.02, futuresTaker: 0.06 };
+                break;
+            case 'OKX':
+                newRates = { ...newRates, spotMaker: 0.08, spotTaker: 0.10, futuresMaker: 0.02, futuresTaker: 0.05 };
+                break;
+            case 'Coinbase':
+                newRates = { ...newRates, spotMaker: 0.40, spotTaker: 0.60, futuresMaker: 0.00, futuresTaker: 0.03 };
+                break;
+            case 'Bitget':
+                newRates = { ...newRates, spotMaker: 0.10, spotTaker: 0.10, futuresMaker: 0.02, futuresTaker: 0.06 };
+                break;
+            default:
+                break;
         }
         setTempFees(newRates);
     };
 
-    // 6. 🔥 儲存費率設定
+    // --- 6. 儲存費率設定 ---
     const handleSaveFees = () => {
         setFeeSettings(tempFees);
         setStatusMsg({ type: 'success', text: '費率設定已更新' });
@@ -142,7 +158,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center backdrop-blur-sm">
             <div className="bg-[#1e2329] w-full max-w-4xl h-[600px] rounded-lg shadow-2xl border border-[#2b3139] overflow-hidden flex animate-fade-in">
                 
-                {/* 🔥 左側選單 (Sidebar) */}
+                {/* 左側選單 (Sidebar) */}
                 <div className="w-1/4 bg-[#161a1e] border-r border-[#2b3139] flex flex-col">
                     <div className="p-6 border-b border-[#2b3139]">
                         <h2 className="text-lg font-bold text-[#eaecef] flex items-center gap-2">
@@ -160,7 +176,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                             onClick={() => setActiveTab('fees')}
                             className={`w-full text-left px-4 py-3 rounded flex items-center gap-3 text-sm font-medium transition-colors ${activeTab === 'fees' ? 'bg-[#2b3139] text-[#f0b90b]' : 'text-[#848e9c] hover:bg-[#2b3139] hover:text-[#eaecef]'}`}
                         >
-                            <DollarSign size={18} /> 手續費與資金費率
+                            <DollarSign size={18} /> 手續費設定
                         </button>
                     </nav>
                     <div className="p-4 border-t border-[#2b3139]">
@@ -170,13 +186,13 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                     </div>
                 </div>
 
-                {/* 🔥 右側內容區 (Content) */}
+                {/* 右側內容區 (Content) */}
                 <div className="flex-1 bg-[#1e2329] flex flex-col overflow-hidden">
                     
                     {/* 頂部標題 */}
                     <div className="px-8 py-6 border-b border-[#2b3139]">
                         <h3 className="text-xl font-bold text-[#eaecef]">
-                            {activeTab === 'profile' ? '基本資料與資產' : '手續費與資金費率設定'}
+                            {activeTab === 'profile' ? '基本資料與資產' : '手續費率設定'}
                         </h3>
                     </div>
 
@@ -259,7 +275,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
 
                                 <div className="border-t border-[#2b3139]"></div>
 
-                                {/* 個人資料設定區 (省略詳細排版，保持原本功能) */}
+                                {/* 個人資料設定區 */}
                                 <div className="flex gap-4 items-start">
                                     <div className="relative group cursor-pointer shrink-0" onClick={handleAvatarChange}>
                                         <div className="w-16 h-16 rounded-full bg-[#2b3139] border border-[#474d57] overflow-hidden">
@@ -294,66 +310,62 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                             </>
                         )}
 
-                        {/* --- TAB 2: 手續費與費率設定 (新增功能) --- */}
+                        {/* --- TAB 2: 手續費與費率設定 --- */}
                         {activeTab === 'fees' && (
                             <div className="space-y-6">
-                                {/* VIP 等級選擇 */}
-                                <div>
-                                    <label className="text-sm font-bold text-[#eaecef] mb-2 block">VIP 等級 (快速套用)</label>
+                                
+                                {/* 交易所選擇區塊 (修正 block flex 衝突) */}
+                                <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]">
+                                    <label className="text-sm font-bold text-[#f0b90b] mb-2 flex items-center gap-2">
+                                        <Settings size={16}/> 選擇交易所 (自動套用費率)
+                                    </label>
                                     <select 
-                                        value={tempFees.vipLevel} 
-                                        onChange={handleVipChange} 
-                                        className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"
+                                        value={selectedExchange} 
+                                        onChange={handleExchangeChange} 
+                                        className="w-full bg-[#1e2329] border border-[#474d57] rounded px-3 py-2.5 text-white outline-none focus:border-[#f0b90b] text-sm"
                                     >
-                                        <option value="VIP0">VIP 0 (一般用戶)</option>
-                                        <option value="VIP1">VIP 1</option>
-                                        <option value="VIP2">VIP 2</option>
-                                        <option value="VIP3">VIP 3 (高資產)</option>
+                                        <option value="Custom">自定義 (Custom)</option>
+                                        <option value="Binance">Binance (幣安)</option>
+                                        <option value="MEXC">MEXC (抹茶)</option>
+                                        <option value="OKX">OKX (歐易)</option>
+                                        <option value="Coinbase">Coinbase Exchange</option>
+                                        <option value="Bitget">Bitget</option>
                                     </select>
-                                    <p className="text-xs text-[#848e9c] mt-1">選擇 VIP 等級會自動帶入對應的市場手續費率。</p>
+                                    <p className="text-xs text-[#848e9c] mt-2 leading-relaxed">
+                                        * 選擇後將自動填入該交易所的標準 Maker/Taker 費率。<br/>
+                                        * 若您是該交易所的 VIP 用戶，請選擇後再手動微調下方數值。
+                                    </p>
                                 </div>
 
                                 <div className="border-t border-[#2b3139]"></div>
 
                                 {/* 現貨費率 */}
                                 <div>
-                                    <h4 className="text-[#f0b90b] text-sm font-bold mb-3 flex items-center gap-2"><TrendingUp size={16}/> 現貨手續費 (Spot Fees)</h4>
+                                    <h4 className="text-[#eaecef] text-sm font-bold mb-3 flex items-center gap-2"><TrendingUp size={16}/> 現貨手續費 (Spot Fees)</h4>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs text-[#848e9c] mb-1 block">掛單 (Maker) %</label>
-                                            <input type="number" step="0.001" value={tempFees.spotMaker} onChange={(e)=>setTempFees({...tempFees, spotMaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
+                                            <input type="number" step="0.001" value={tempFees.spotMaker} onChange={(e)=>{setTempFees({...tempFees, spotMaker: parseFloat(e.target.value)}); setSelectedExchange('Custom');}} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
                                         </div>
                                         <div>
                                             <label className="text-xs text-[#848e9c] mb-1 block">吃單 (Taker) %</label>
-                                            <input type="number" step="0.001" value={tempFees.spotTaker} onChange={(e)=>setTempFees({...tempFees, spotTaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
+                                            <input type="number" step="0.001" value={tempFees.spotTaker} onChange={(e)=>{setTempFees({...tempFees, spotTaker: parseFloat(e.target.value)}); setSelectedExchange('Custom');}} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* 合約費率 */}
                                 <div>
-                                    <h4 className="text-[#f0b90b] text-sm font-bold mb-3 flex items-center gap-2"><Settings size={16}/> 合約手續費 (Futures Fees)</h4>
+                                    <h4 className="text-[#eaecef] text-sm font-bold mb-3 flex items-center gap-2"><Settings size={16}/> 合約手續費 (Futures Fees)</h4>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="text-xs text-[#848e9c] mb-1 block">掛單 (Maker) %</label>
-                                            <input type="number" step="0.001" value={tempFees.futuresMaker} onChange={(e)=>setTempFees({...tempFees, futuresMaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
+                                            <input type="number" step="0.001" value={tempFees.futuresMaker} onChange={(e)=>{setTempFees({...tempFees, futuresMaker: parseFloat(e.target.value)}); setSelectedExchange('Custom');}} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
                                         </div>
                                         <div>
                                             <label className="text-xs text-[#848e9c] mb-1 block">吃單 (Taker) %</label>
-                                            <input type="number" step="0.001" value={tempFees.futuresTaker} onChange={(e)=>setTempFees({...tempFees, futuresTaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
+                                            <input type="number" step="0.001" value={tempFees.futuresTaker} onChange={(e)=>{setTempFees({...tempFees, futuresTaker: parseFloat(e.target.value)}); setSelectedExchange('Custom');}} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
                                         </div>
-                                    </div>
-                                </div>
-
-                                <div className="border-t border-[#2b3139]"></div>
-
-                                {/* 資金費率 */}
-                                <div>
-                                    <h4 className="text-[#f0b90b] text-sm font-bold mb-3 flex items-center gap-2"><DollarSign size={16}/> 資金費率 (Funding Rate)</h4>
-                                    <div>
-                                        <label className="text-xs text-[#848e9c] mb-1 block">預設資金費率 (% / 8hr)</label>
-                                        <input type="number" step="0.0001" value={tempFees.fundingRate} onChange={(e)=>setTempFees({...tempFees, fundingRate: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded px-3 py-2 text-white outline-none focus:border-[#f0b90b]"/>
-                                        <p className="text-[10px] text-[#848e9c] mt-1">* 此費率將用於計算合約持倉成本與模擬扣款</p>
                                     </div>
                                 </div>
 
