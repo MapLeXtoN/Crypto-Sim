@@ -2,26 +2,25 @@
 import React, { useState } from 'react';
 import { LayoutList, BarChart2, Grid3X3 } from 'lucide-react';
 
-// 🔥 修正引用路徑：
-// 假設 SpotGrid 和 FuturesGrid 都在同一個 PositionManagement 資料夾內
+// 引用修正後的路徑
 import SpotGrid from './SpotGrid'; 
-import FuturesGrid from './FuturesGrid'; // 修改這裡：從 '../TradingPanel/FuturesGrid' 改為 './FuturesGrid'
+import FuturesGrid from './FuturesGrid'; 
 
-// 假設 SpotView 和 FuturesView 仍在 TradingPanel 資料夾內
 import SpotView from './SpotMarket'; 
 import FuturesView from './FuturesTrading'; 
 
 const TransactionDetails = ({ 
-    filteredData, currentPrice, closePosition, cancelOrder, calculatePnL, symbol
+    filteredData, currentPrice, closePosition, cancelOrder, calculatePnL, symbol,
+    onGridSelect, activeGridId // 🔥 接收這兩個新 Props
 }) => {
     
-    // --- 以下邏輯保持不變 ---
     const [category, setCategory] = useState('spot'); 
     const [gridType, setGridType] = useState('spot'); 
     const [subTab, setSubTab] = useState('positions'); 
 
     const safeData = filteredData?.data || { pos: [], ord: [], history: [] };
 
+    // ... (getTabClass 樣式函數保持不變) ...
     const getTabClass = (active) => 
         `flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer border-b-2 transition-colors ${
             active 
@@ -45,22 +44,12 @@ const TransactionDetails = ({
                 </div>
             </div>
 
-            {/* 2. 次級控制列 */}
+            {/* 2. 次級控制列 (保持不變) */}
             <div className="px-4 py-2 border-b border-[#2b3139] bg-[#1e2329] flex items-center justify-between min-h-[40px]">
                 {category === 'grid' ? (
                     <div className="flex bg-[#0b0e11] rounded p-0.5">
-                        <button 
-                            onClick={() => setGridType('spot')}
-                            className={`px-4 py-1 text-xs rounded transition-all ${gridType === 'spot' ? 'bg-[#2b3139] text-[#eaecef] font-bold shadow' : 'text-[#848e9c] hover:text-[#eaecef]'}`}
-                        >
-                            現貨網格
-                        </button>
-                        <button 
-                            onClick={() => setGridType('futures')}
-                            className={`px-4 py-1 text-xs rounded transition-all ${gridType === 'futures' ? 'bg-[#2b3139] text-[#eaecef] font-bold shadow' : 'text-[#848e9c] hover:text-[#eaecef]'}`}
-                        >
-                            合約網格
-                        </button>
+                        <button onClick={() => setGridType('spot')} className={`px-4 py-1 text-xs rounded transition-all ${gridType === 'spot' ? 'bg-[#2b3139] text-[#eaecef] font-bold shadow' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>現貨網格</button>
+                        <button onClick={() => setGridType('futures')} className={`px-4 py-1 text-xs rounded transition-all ${gridType === 'futures' ? 'bg-[#2b3139] text-[#eaecef] font-bold shadow' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>合約網格</button>
                     </div>
                 ) : (
                     <div className="flex gap-6">
@@ -71,33 +60,27 @@ const TransactionDetails = ({
                 )}
             </div>
 
-            {/* 3. 內容區域 */}
+            {/* 3. 內容區域：傳遞 props 給 Grid 組件 */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 {category === 'spot' && (
-                    <SpotView 
-                        subTab={subTab} data={safeData} currentPrice={currentPrice} 
-                        cancelOrder={cancelOrder} closePosition={closePosition} symbol={symbol} 
-                    />
+                    <SpotView subTab={subTab} data={safeData} currentPrice={currentPrice} cancelOrder={cancelOrder} closePosition={closePosition} symbol={symbol} />
                 )}
 
                 {category === 'futures' && (
-                    <FuturesView 
-                        subTab={subTab} data={safeData} currentPrice={currentPrice} 
-                        cancelOrder={cancelOrder} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
-                    />
+                    <FuturesView subTab={subTab} data={safeData} currentPrice={currentPrice} cancelOrder={cancelOrder} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} />
                 )}
 
                 {category === 'grid' && (
                     <>
                         {gridType === 'spot' ? (
                             <SpotGrid 
-                                data={safeData} currentPrice={currentPrice} 
-                                closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
+                                data={safeData} currentPrice={currentPrice} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
+                                onGridSelect={onGridSelect} activeGridId={activeGridId} // 🔥 傳入
                             />
                         ) : (
                             <FuturesGrid 
-                                data={safeData} currentPrice={currentPrice} 
-                                closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
+                                data={safeData} currentPrice={currentPrice} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
+                                onGridSelect={onGridSelect} activeGridId={activeGridId} // 🔥 傳入
                             />
                         )}
                     </>

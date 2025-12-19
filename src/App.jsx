@@ -27,7 +27,8 @@ export default function App() {
   const [history, setHistory] = useState([]);     
   const [klineData, setKlineData] = useState([]);
   
-  // 🔥 移除 activeGridId，這是導致黑屏的主因
+  const [activeGridId, setActiveGridId] = useState(null);
+  const activeGrid = positions.find(p => p.id === activeGridId) || null;
   
   const [feeSettings, setFeeSettings] = useState({
       vipLevel: 'VIP0', spotMaker: 0.1, spotTaker: 0.1, futuresMaker: 0.02, futuresTaker: 0.05, fundingRate: 0.01
@@ -152,6 +153,7 @@ export default function App() {
           setPositions([]);
           setOrders([]);
           setHistory([]);
+          setActiveGridId(null);
       }
       if (user) {
           try {
@@ -166,43 +168,241 @@ export default function App() {
       }
   };
 
-  // 🔥 網格利潤計算 (保留這個，因為您需要利潤在跑，但不會影響畫面)
+  // 🔥 核心修改：網格更新邏輯，加入套利次數(matchedCount)計算
   const updateGridPositions = (price) => {
       if (!price || isNaN(price)) return;
 
       setPositions(prevPositions => {
           let hasChanges = false;
-          const newPositions = prevPositions.map(pos => {
+          let newPositions = prevPositions.map(pos => {
               if ((pos.mode !== 'grid_spot' && pos.mode !== 'grid_futures') || pos.symbol !== symbol) return pos;
-              if (!pos.gridLines || !Array.isArray(pos.gridLines)) return pos;
+              if (price < pos.gridLower || price > pos.gridUpper) return pos;
 
               let newGridLines = [...pos.gridLines];
               let newRealizedProfit = pos.realizedProfit || 0;
-              let triggeredCount = 0;
+              let newMatchedCount = pos.matchedCount || 0; // 🔥 確保有初始值
+              let triggered = false;
+              
+              const direction = pos.gridDirection || 'neutral';
+              const step = pos.gridStep;
 
               newGridLines = newGridLines.map(line => {
-                  if (line.type === 'buy' && price <= line.price) {
-                      triggeredCount++;
-                      return { ...line, type: 'sell', price: line.price * (1 + pos.profitPerGrid) }; 
+                  // --- LONG LOGIC ---
+                  if (direction === 'long') {
+                      if (line.type === 'buy' && price <= line.price) {
+                          triggered = true;
+                          return { ...line, type: 'sell', price: line.price + step };
+                      }
+                      else if (line.type === 'sell' && price >= line.price) {
+                          triggered = true;
+                          // 🔥 賣出獲利：增加利潤與次數
+                          const profit = (pos.amount / pos.gridLevels) * (step / line.price); 
+                          newRealizedProfit += profit;
+                          newMatchedCount += 1; // 增加套利次數
+                          return { ...line, type: 'buy', price: line.price - step };
+                      }
                   }
-                  else if (line.type === 'sell' && price >= line.price) {
-                      triggeredCount++;
-                      const profit = (pos.amount / pos.gridLevels) * pos.profitPerGrid;
-                      newRealizedProfit += profit;
-                      return { ...line, type: 'buy', price: line.price * (1 - pos.profitPerGrid) }; 
+                  // --- SHORT LOGIC ---
+                  else if (direction === 'short') {
+                      if (line.type === 'sell' && price >= line.price) {
+                          triggered = true;
+                          return { ...line, type: 'buy', price: line.price - step };
+                      }
+                      else if (line.type === 'buy' && price <= line.price) {
+                          triggered = true;
+                          // 🔥 買入回補獲利：增加利潤與次數
+                          const profit = (pos.amount / pos.gridLevels) * (step / line.price);
+                          newRealizedProfit += profit;
+                          newMatchedCount += 1; // 增加套利次數
+                          return { ...line, type: 'sell', price: line.price + step };
+                      }
+                  }
+                  // --- NEUTRAL LOGIC ---
+                  else {
+                      if (line.type === 'buy' && price <= line.price) {
+                          triggered = true;
+                          return { ...line, type: 'sell', price: line.price + step };
+                      }
+                      else if (line.type === 'sell' && price >= line.price) {
+                          triggered = true;
+                          // 🔥 中性網格獲利
+                          const profit = (pos.amount / pos.gridLevels) * (step / line.price);
+                          newRealizedProfit += profit;
+                          newMatchedCount += 1; // 增加套利次數
+                          return { ...line, type: 'buy', price: line.price - step };
+                      }
                   }
                   return line;
               });
 
-              if (triggeredCount > 0) {
+              if (triggered) {
                   hasChanges = true;
-                  return { ...pos, gridLines: newGridLines, realizedProfit: newRealizedProfit };
+                  return { 
+                      ...pos, 
+                      gridLines: newGridLines, 
+                      realizedProfit: newRealizedProfit,
+                      matchedCount: newMatchedCount // 🔥 更新狀態
+                  };
               }
               return pos;
           });
+
+          // 強平檢查
+          const totalEquity = balance + calculateTotalUnrealizedPnL(newPositions, price);
+          if (totalEquity <= 0) {
+              setOrders([]);
+              setHistory(prev => [...prev, { time: new Date().toLocaleTimeString(), symbol: 'ALL', type: 'LIQUIDATION', pnl: -balance, status: 'liquidated' }]);
+              setBalance(0);
+              return [];
+          }
+
           return hasChanges ? newPositions : prevPositions;
       });
   };
+
+  const calculateTotalUnrealizedPnL = (currentPositions, currentPrice) => {
+    return currentPositions.reduce((acc, pos) => {
+        let pnl = 0;
+        if (pos.mode === 'grid_spot' || pos.mode === 'grid_futures') {
+            pnl = calculatePnL(pos, currentPrice);
+        } else {
+             const diff = pos.side === 'long' ? (currentPrice - pos.entryPrice) : (pos.entryPrice - currentPrice);
+             pnl = (pos.mode === 'spot') ? (currentPrice - pos.entryPrice) * pos.size : diff * pos.size;
+        }
+        return acc + (isNaN(pnl) ? 0 : pnl);
+    }, 0);
+  };
+
+  const handleTrade = () => {
+    if (!currentPrice || currentPrice <= 0) return alert('價格載入中...');
+    const executionPrice = orderType === 'limit' ? parseFloat(priceInput) : currentPrice;
+    const val = parseFloat(amount);
+    if (!val || val <= 0) return alert('請輸入有效數量');
+
+    if (tradeMode === 'grid') {
+        const totalInvestment = val;
+        if (totalInvestment > balance) return alert('資金不足');
+        const min = parseFloat(gridLowerPrice); 
+        const max = parseFloat(gridUpperPrice);
+        const levels = parseInt(gridLevels);
+
+        if (!min || !max || min >= max || levels < 2) return alert('無效範圍或格數');
+        
+        const priceDiff = max - min;
+        const step = priceDiff / levels;
+        const profitPerGrid = step / min;
+
+        const gridLines = [];
+        for (let i = 1; i < levels; i++) {
+            const linePrice = min + (i * step);
+            let type = 'buy';
+            
+            if (gridDirection === 'long') {
+                type = 'buy';
+            } else if (gridDirection === 'short') {
+                type = 'sell';
+            } else {
+                type = linePrice < currentPrice ? 'buy' : 'sell';
+            }
+
+            gridLines.push({
+                price: linePrice,
+                type: type
+            });
+        }
+
+        const gridMode = gridType === 'spot' ? 'grid_spot' : 'grid_futures';
+        const newOrder = { 
+            id: Date.now(), symbol, mode: gridMode, status: 'active', 
+            amount: totalInvestment, leverage: gridType === 'futures' ? leverage : 1,
+            gridLower: min, gridUpper: max, gridLevels: levels, gridStep: step, gridDirection,
+            gridLines: gridLines, profitPerGrid: profitPerGrid, 
+            realizedProfit: 0, // 🔥 初始利潤為 0
+            matchedCount: 0,   // 🔥 初始套利次數為 0
+            entryPrice: currentPrice
+        };
+
+        setPositions(prev => [newOrder, ...prev]);
+        setBalance(p => p - totalInvestment);
+        alert(`${gridType === 'spot' ? '現貨' : '合約'}網格 (${gridDirection}) 已建立`);
+        return;
+    }
+
+    // 一般交易
+    let usdtValue, coinSize, margin;
+    if (tradeMode === 'spot') {
+        usdtValue = amountType === 'usdt' ? val : val * executionPrice;
+        coinSize = amountType === 'usdt' ? val / executionPrice : val;
+        margin = usdtValue;
+    } else {
+        if (amountType === 'coin') {
+            coinSize = val; usdtValue = val * executionPrice; margin = usdtValue / leverage;
+        } else {
+            if (futuresInputMode === 'cost') {
+                margin = val; usdtValue = margin * leverage; coinSize = usdtValue / executionPrice;
+            } else {
+                usdtValue = val; margin = usdtValue / leverage; coinSize = usdtValue / executionPrice;
+            }
+        }
+    }
+    if (margin > balance) return alert(`資金不足！需要保證金: ${margin.toFixed(2)} USDT`);
+    if (orderType === 'limit') {
+          const newOrder = { id: Date.now(), symbol, mode: tradeMode, type: 'limit', side, price: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, status: 'pending', time: new Date().toLocaleTimeString(), isBot: false };
+          setOrders(prev => [newOrder, ...prev]);
+    } else {
+          const newPos = { id: Date.now(), symbol, mode: tradeMode, side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, margin, isBot: false };
+          setPositions(prev => [newPos, ...prev]);
+    }
+    setBalance(p => p - margin); setAmount('');
+  };
+
+  const closePosition = (id) => {
+    const pos = positions.find(p => p.id === id); if (!pos) return;
+    const diff = pos.side === 'long' ? (currentPrice - pos.entryPrice) : (pos.entryPrice - currentPrice);
+    let pnl = (pos.mode === 'spot') ? (currentPrice - pos.entryPrice) * pos.size : diff * pos.size;
+    
+    if (pos.mode === 'grid_spot' || pos.mode === 'grid_futures') {
+        const floatPnL = calculatePnL(pos, currentPrice);
+        setBalance(p => p + pos.amount + (pos.realizedProfit || 0) + floatPnL); 
+        if (activeGridId === id) setActiveGridId(null);
+    } else { 
+        setBalance(p => p + pos.margin + pnl); 
+    }
+    const historyItem = { ...pos, closePrice: currentPrice, pnl: (pos.realizedProfit || 0) + pnl, exitTime: new Date().toLocaleTimeString(), type: 'position' };
+    setHistory(prev => [historyItem, ...prev]);
+    setPositions(p => p.filter(x => x.id !== id));
+  };
+
+  const cancelOrder = (id) => {
+      const order = orders.find(o => o.id === id); if (!order) return;
+      const refund = order.mode === 'futures' ? (order.amount / order.leverage) : order.amount;
+      setBalance(p => p + refund);
+      setHistory(prev => [{ ...order, status: 'canceled', exitTime: new Date().toLocaleTimeString(), type: 'order' }, ...prev]);
+      setOrders(p => p.filter(x => x.id !== id));
+  };
+
+  const calculatePnL = (pos, price) => {
+      if (!pos.entryPrice || pos.entryPrice === 0 || !price || isNaN(price)) return 0;
+      if (pos.mode === 'grid_spot') return (price - pos.entryPrice) * ((pos.amount / 2) / pos.entryPrice);
+      if (pos.mode === 'grid_futures') {
+          let directionMultiplier = 1;
+          if (pos.gridDirection === 'short') directionMultiplier = -1;
+          return (price - pos.entryPrice) * ((pos.amount / 2) / pos.entryPrice) * pos.leverage * directionMultiplier;
+      }
+      if (pos.mode === 'spot') return (price - pos.entryPrice) * pos.size;
+      return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * pos.size;
+  };
+  
+  const equity = balance + positions.reduce((acc, pos) => {
+      const isGrid = pos.mode === 'grid_spot' || pos.mode === 'grid_futures';
+      let pnl = 0;
+      if (pos.symbol === symbol || isGrid) pnl = calculatePnL(pos, currentPrice);
+      if (isNaN(pnl)) pnl = 0;
+      if (isGrid) return acc + pos.amount + (pos.realizedProfit || 0) + pnl;
+      return acc + pos.margin + pnl;
+  }, 0);
+
+  const filteredData = { data: { pos: positions, ord: orders, history: history } };
 
   useEffect(() => {
     let isMounted = true;
@@ -245,121 +445,6 @@ export default function App() {
     return () => { isMounted = false; clearInterval(timer); controller.abort(); };
   }, [symbol, timeframe]);
 
-  const handleTrade = () => {
-    if (!currentPrice || currentPrice <= 0) return alert('價格載入中...');
-    const executionPrice = orderType === 'limit' ? parseFloat(priceInput) : currentPrice;
-    const val = parseFloat(amount);
-    if (!val || val <= 0) return alert('請輸入有效數量');
-
-    if (tradeMode === 'grid') {
-        const totalInvestment = val;
-        if (totalInvestment > balance) return alert('資金不足');
-        const min = parseFloat(gridLowerPrice); 
-        const max = parseFloat(gridUpperPrice);
-        const levels = parseInt(gridLevels);
-
-        if (!min || !max || min >= max || levels < 2) return alert('無效範圍或格數');
-        
-        const priceDiff = max - min;
-        const step = priceDiff / levels;
-        const profitPerGrid = step / min;
-
-        const gridLines = [];
-        for (let i = 1; i < levels; i++) {
-            const linePrice = min + (i * step);
-            gridLines.push({
-                price: linePrice,
-                type: linePrice < currentPrice ? 'buy' : 'sell'
-            });
-        }
-
-        const gridMode = gridType === 'spot' ? 'grid_spot' : 'grid_futures';
-        const newOrder = { 
-            id: Date.now(), symbol, mode: gridMode, status: 'active', 
-            amount: totalInvestment, leverage: gridType === 'futures' ? leverage : 1,
-            gridLower: min, gridUpper: max, gridLevels: levels,
-            gridLines: gridLines, profitPerGrid: profitPerGrid, realizedProfit: 0,
-            entryPrice: currentPrice
-        };
-
-        setPositions(prev => [newOrder, ...prev]);
-        setBalance(p => p - totalInvestment);
-        // setActiveGridId(newOrder.id); // 移除自動顯示
-        alert(`${gridType === 'spot' ? '現貨' : '合約'}網格已建立`);
-        return;
-    }
-
-    let usdtValue, coinSize, margin;
-    if (tradeMode === 'spot') {
-        usdtValue = amountType === 'usdt' ? val : val * executionPrice;
-        coinSize = amountType === 'usdt' ? val / executionPrice : val;
-        margin = usdtValue;
-    } else {
-        if (amountType === 'coin') {
-            coinSize = val; usdtValue = val * executionPrice; margin = usdtValue / leverage;
-        } else {
-            if (futuresInputMode === 'cost') {
-                margin = val; usdtValue = margin * leverage; coinSize = usdtValue / executionPrice;
-            } else {
-                usdtValue = val; margin = usdtValue / leverage; coinSize = usdtValue / executionPrice;
-            }
-        }
-    }
-    if (margin > balance) return alert(`資金不足！需要保證金: ${margin.toFixed(2)} USDT`);
-    if (orderType === 'limit') {
-          const newOrder = { id: Date.now(), symbol, mode: tradeMode, type: 'limit', side, price: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, status: 'pending', time: new Date().toLocaleTimeString(), isBot: false };
-          setOrders(prev => [newOrder, ...prev]);
-    } else {
-          const newPos = { id: Date.now(), symbol, mode: tradeMode, side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, margin, isBot: false };
-          setPositions(prev => [newPos, ...prev]);
-    }
-    setBalance(p => p - margin); setAmount('');
-  };
-
-  const closePosition = (id) => {
-    const pos = positions.find(p => p.id === id); if (!pos) return;
-    const diff = pos.side === 'long' ? (currentPrice - pos.entryPrice) : (pos.entryPrice - currentPrice);
-    let pnl = (pos.mode === 'spot') ? (currentPrice - pos.entryPrice) * pos.size : diff * pos.size;
-    
-    if (pos.mode === 'grid_spot' || pos.mode === 'grid_futures') {
-        const floatPnL = calculatePnL(pos, currentPrice);
-        setBalance(p => p + pos.amount + (pos.realizedProfit || 0) + floatPnL); 
-        // 移除 setActiveGridId 呼叫
-    } else { 
-        setBalance(p => p + pos.margin + pnl); 
-    }
-    const historyItem = { ...pos, closePrice: currentPrice, pnl: (pos.realizedProfit || 0) + pnl, exitTime: new Date().toLocaleTimeString(), type: 'position' };
-    setHistory(prev => [historyItem, ...prev]);
-    setPositions(p => p.filter(x => x.id !== id));
-  };
-
-  const cancelOrder = (id) => {
-      const order = orders.find(o => o.id === id); if (!order) return;
-      const refund = order.mode === 'futures' ? (order.amount / order.leverage) : order.amount;
-      setBalance(p => p + refund);
-      setHistory(prev => [{ ...order, status: 'canceled', exitTime: new Date().toLocaleTimeString(), type: 'order' }, ...prev]);
-      setOrders(p => p.filter(x => x.id !== id));
-  };
-
-  const calculatePnL = (pos, price) => {
-      if (!pos.entryPrice || pos.entryPrice === 0 || !price || isNaN(price)) return 0;
-      if (pos.mode === 'grid_spot') return (price - pos.entryPrice) * ((pos.amount / 2) / pos.entryPrice);
-      if (pos.mode === 'grid_futures') return (price - pos.entryPrice) * ((pos.amount / 2) / pos.entryPrice) * pos.leverage;
-      if (pos.mode === 'spot') return (price - pos.entryPrice) * pos.size;
-      return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * pos.size;
-  };
-  
-  const equity = balance + positions.reduce((acc, pos) => {
-      const isGrid = pos.mode === 'grid_spot' || pos.mode === 'grid_futures';
-      let pnl = 0;
-      if (pos.symbol === symbol || isGrid) pnl = calculatePnL(pos, currentPrice);
-      if (isNaN(pnl)) pnl = 0;
-      if (isGrid) return acc + pos.amount + (pos.realizedProfit || 0) + pnl;
-      return acc + pos.margin + pnl;
-  }, 0);
-
-  const filteredData = { data: { pos: positions, ord: orders, history: history } };
-
   if (authLoading) return <div className="min-h-screen bg-[#0b0e11] text-white flex items-center justify-center">Loading...</div>;
   if (!user) return <LoginView onLoginSuccess={setUser} />;
 
@@ -368,13 +453,13 @@ export default function App() {
       <Header symbol={symbol} setSymbol={setSymbol} currentPrice={currentPrice} equity={equity} balance={balance} user={user} setUser={setUser} resetAccount={resetAccount} history={history} positions={positions} feeSettings={feeSettings} setFeeSettings={setFeeSettings} />
       
       <div className="flex flex-1 overflow-hidden">
-        {/* ChartContainer 還原：不傳入 activeGrid */}
         <ChartContainer 
             symbol={symbol} timeframe={timeframe} setTimeframe={setTimeframe} 
             klineData={klineData} currentPrice={currentPrice} 
             loading={loading} apiError={apiError}
             showTimeMenu={showTimeMenu} setShowTimeMenu={setShowTimeMenu} 
             favorites={favorites} toggleFavorite={toggleFavorite} 
+            activeGrid={activeGrid} 
         />
         
         <div className="w-1 bg-[#2b3139] hover:bg-[#f0b90b] cursor-col-resize z-50 transition-colors flex items-center justify-center group" onMouseDown={startResizing}>
@@ -396,10 +481,11 @@ export default function App() {
         </div>
       </div>
 
-      {/* TransactionDetails 還原：不傳入 activeGridId */}
       <TransactionDetails 
          mainTab={mainTab} setMainTab={setMainTab} subTab={subTab} setSubTab={setSubTab} 
          filteredData={filteredData} currentPrice={currentPrice} closePosition={closePosition} cancelOrder={cancelOrder} calculatePnL={calculatePnL} symbol={symbol} 
+         onGridSelect={setActiveGridId}
+         activeGridId={activeGridId}
       />
     </div>
   );
