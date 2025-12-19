@@ -1,10 +1,8 @@
 // src/components/PositionManagement/GridStrategyDetails.jsx
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
-// 🔥 修改：改用專用的 GridChart，而不是通用的 ChartContainer
-import GridChart from './GridChart'; 
 
-const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, klineData, timeframe, setTimeframe }) => {
+const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
 
     if (!grid) return null;
 
@@ -42,8 +40,8 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, klineDa
             </div>
 
             <div className="flex flex-1 overflow-hidden">
-                {/* 左側數據面板 */}
-                <div className="w-[400px] border-r border-[#2b3139] flex flex-col overflow-y-auto bg-[#161a1e] shrink-0">
+                {/* 填滿剩餘空間 (w-full) */}
+                <div className="w-full flex flex-col overflow-y-auto bg-[#161a1e] shrink-0">
                     <div className="p-4 border-b border-[#2b3139]">
                         <div className="text-xs text-[#848e9c] mb-2">總利潤 (USDT)</div>
                         <div className={`text-3xl font-bold mb-1 ${textColor}`}>
@@ -54,7 +52,7 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, klineDa
                         </div>
                     </div>
 
-                    <div className="p-4 grid grid-cols-2 gap-y-6 gap-x-4">
+                    <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-y-6 gap-x-4">
                         <div>
                             <div className="text-xs text-[#848e9c] mb-1">網格利潤</div>
                             <div className="text-sm font-bold text-[#089981]">+{realized.toFixed(4)}</div>
@@ -87,35 +85,6 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, klineDa
                             <div className="text-xs text-[#848e9c] mb-1">方向</div>
                             <div className="text-sm text-[#f0b90b] uppercase">{grid.gridDirection}</div>
                         </div>
-                    </div>
-                </div>
-
-                {/* 右側圖表區域 */}
-                <div className="flex-1 bg-[#0b0e11] relative flex flex-col min-h-0">
-                    
-                    {/* 🔥 自定義的時間週期切換列 (取代 ChartUI) */}
-                    <div className="h-10 border-b border-[#2b3139] flex items-center px-4 gap-2 bg-[#1e2329] shrink-0">
-                        {['15m', '1h', '4h', '1d'].map(tf => (
-                            <button 
-                                key={tf}
-                                onClick={() => setTimeframe(tf)}
-                                className={`text-xs font-bold px-3 py-1 rounded transition-all ${
-                                    timeframe === tf 
-                                    ? 'bg-[#2b3139] text-[#f0b90b] shadow-sm' 
-                                    : 'text-[#848e9c] hover:text-[#eaecef] hover:bg-[#2b3139]'
-                                }`}
-                            >
-                                {tf}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* 純淨的網格圖表 */}
-                    <div className="flex-1 w-full h-full min-h-0">
-                        <GridChart 
-                            klineData={klineData}
-                            grid={grid} 
-                        />
                     </div>
                 </div>
             </div>

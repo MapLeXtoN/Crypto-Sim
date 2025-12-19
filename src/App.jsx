@@ -10,7 +10,7 @@ import LoginView from './components/LoginView';
 import Header from './components/TOP/Header';
 import ChartContainer from './components/chart/ChartContainer';
 import TransactionDetails from './components/PositionManagement/PositionManagement';
-import TradingPanel from './components/Tradingpanel/TradingPanel';
+import TradingPanel from './components/TradingPanel/TradingPanel';
 import GridStrategyDetails from './components/PositionManagement/GridStrategyDetails'; 
 
 export default function App() {
@@ -174,6 +174,77 @@ export default function App() {
   // CORE TRADING LOGIC
   // ---------------------------------------------------------
 
+  // 🔥 新增：掛單撮合邏輯 (Order Matching Logic)
+  // 當價格變動時，檢查是否有 Limit 單需要成交
+  useEffect(() => {
+    if (!currentPrice || orders.length === 0) return;
+
+    let hasChanges = false;
+    const filledOrders = [];
+    const remainingOrders = [];
+
+    orders.forEach(order => {
+        // 只處理狀態為 pending 的訂單
+        if (order.status !== 'pending') {
+            remainingOrders.push(order);
+            return;
+        }
+
+        let isFilled = false;
+        const pCurrent = parseFloat(currentPrice);
+        const pOrder = parseFloat(order.price);
+
+        // 買單 (做多)：現價 <= 掛單價
+        if (order.side === 'long' && pCurrent <= pOrder) isFilled = true;
+        // 賣單 (做空)：現價 >= 掛單價
+        if (order.side === 'short' && pCurrent >= pOrder) isFilled = true;
+
+        if (isFilled) {
+            hasChanges = true;
+            filledOrders.push(order);
+        } else {
+            remainingOrders.push(order);
+        }
+    });
+
+    if (hasChanges) {
+        // 1. 更新訂單列表 (移除已成交)
+        setOrders(remainingOrders);
+
+        // 2. 將成交的訂單轉為持倉
+        const newPositions = filledOrders.map(o => ({
+            id: Date.now() + Math.random(), // 確保 ID 唯一
+            symbol: o.symbol,
+            mode: o.mode,
+            side: o.side,
+            entryPrice: o.price, // 以掛單價成交 (或可改為 currentPrice)
+            amount: o.amount,    // 總投資額 (USDT)
+            size: o.size,        // 數量 (Coin)
+            leverage: o.leverage,
+            margin: o.mode === 'futures' ? (o.amount / o.leverage) : o.amount,
+            tp: o.tp || null, // 帶入止盈
+            sl: o.sl || null, // 帶入止損
+            isBot: false,
+            time: new Date().toLocaleString() // 成交時間
+        }));
+
+        setPositions(prev => [...newPositions, ...prev]);
+
+        // 3. 寫入歷史紀錄
+        const newHistory = filledOrders.map(o => ({
+            ...o,
+            status: 'filled',
+            exitTime: new Date().toLocaleString(),
+            type: 'order_filled',
+            pnl: 0 
+        }));
+
+        setHistory(prev => [...newHistory, ...prev]);
+        
+        // 注意：餘額在下單時(handleTrade)已扣除，此處無需再次操作餘額
+    }
+  }, [currentPrice, orders]); // 依賴 currentPrice 觸發檢查
+
   const generateChartLines = (levels, subPositions, step, direction) => {
       return levels.map((price, index) => {
           const hasPos = subPositions.some(p => p.gridIndex === index);
@@ -201,20 +272,14 @@ export default function App() {
       setPositions(prevPositions => {
           let hasChanges = false;
           const newPositions = prevPositions.map(pos => {
-              // 1. Filter
               if ((pos.mode !== 'grid_spot' && pos.mode !== 'grid_futures') || pos.symbol !== symbol) return pos;
 
-              // 🔥 防崩潰：如果 subPositions 是 undefined (舊資料)，給空陣列
               const currentSubPositions = pos.subPositions || [];
 
-              // 2. Boundary Check
               if (price < pos.gridLower || price > pos.gridUpper) {
                   return pos;
               }
 
-              // -------------------------------------------------
-              // Liquidation Logic
-              // -------------------------------------------------
               const maintMarginRate = 0.005;
               const currentUnrealized = calculatePnL(pos, price);
               const equity = pos.amount + (pos.realizedProfit || 0) + currentUnrealized;
@@ -227,15 +292,11 @@ export default function App() {
                   return { ...pos, status: 'liquidated', subPositions: [], realizedProfit: -pos.amount };
               }
 
-              // -------------------------------------------------
-              // Trading Logic
-              // -------------------------------------------------
               let newSubPositions = [...currentSubPositions];
               let newRealizedProfit = pos.realizedProfit || 0;
               let newMatchedCount = pos.matchedCount || 0;
               let triggered = false;
 
-              // 🔥 確保 levels 存在
               const levels = pos.gridLevelsList || [];
               const step = pos.gridStep;
               const size = pos.basePositionSize; 
@@ -243,10 +304,8 @@ export default function App() {
 
               const findPosIndex = (idx) => newSubPositions.findIndex(p => p.gridIndex === idx);
 
-              // --- LONG MODE LOGIC ---
               if (pos.gridDirection === 'long' || pos.gridDirection === 'neutral') {
                   levels.forEach((levelPrice, i) => {
-                      // Exit
                       if (i < levels.length - 1) { 
                           const exitPrice = levels[i + 1];
                           const posIdx = findPosIndex(i);
@@ -261,7 +320,6 @@ export default function App() {
                               triggered = true;
                           }
                       }
-                      // Entry
                       if (price <= levelPrice) {
                           const posIdx = findPosIndex(i);
                           if (posIdx === -1) {
@@ -280,10 +338,8 @@ export default function App() {
                   });
               }
 
-              // --- SHORT MODE LOGIC ---
               if (pos.gridDirection === 'short' || pos.gridDirection === 'neutral') {
                   levels.forEach((levelPrice, i) => {
-                      // Exit
                       if (i > 0) {
                           const exitPrice = levels[i - 1];
                           const posIdx = findPosIndex(i);
@@ -298,7 +354,6 @@ export default function App() {
                               triggered = true;
                           }
                       }
-                      // Entry
                       if (price >= levelPrice) {
                           const posIdx = findPosIndex(i);
                           if (posIdx === -1) {
@@ -345,25 +400,51 @@ export default function App() {
       });
   };
 
+  // 使用幣安防禦型 API
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
+
     const fetchData = async () => {
       try {
-        const res = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=500`, { signal: controller.signal });
-        if (!res.ok) throw new Error();
+        const res = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=500`, { 
+            signal: controller.signal,
+            cache: 'no-store'
+        });
+
+        if (!res.ok) {
+            if (res.status === 429 || res.status === 418) console.warn("[Binance API] Rate Limited.");
+            throw new Error(`API Error: ${res.status}`);
+        }
+        
         const rawData = await res.json();
-        const formattedData = rawData.map(d => ({
-            timestamp: typeof d[0] === 'string' ? parseInt(d[0]) : d[0],
-            open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]), volume: parseFloat(d[5])
-        }));
-        if (isMounted) {
-             setApiError(false); setKlineData(formattedData); setLoading(false); 
-             if(formattedData.length > 0) {
-                 const newPrice = formattedData[formattedData.length - 1].close;
-                 setCurrentPrice(newPrice);
-                 updateGridPositions(newPrice);
-             }
+
+        // 防禦機制：檢查數據格式
+        if (Array.isArray(rawData) && rawData.length > 0) {
+            if (!Array.isArray(rawData[0]) || rawData[0].length < 6) return;
+
+            const formattedData = rawData.map(d => ({
+                timestamp: typeof d[0] === 'string' ? parseInt(d[0]) : d[0],
+                open: parseFloat(d[1]),
+                high: parseFloat(d[2]),
+                low: parseFloat(d[3]),
+                close: parseFloat(d[4]),
+                volume: parseFloat(d[5])
+            }));
+
+            if (isMounted) {
+                 setApiError(false); 
+                 setKlineData(formattedData); 
+                 setLoading(false); 
+
+                 if(formattedData.length > 0) {
+                     const newPrice = formattedData[formattedData.length - 1].close;
+                     if (!isNaN(newPrice)) {
+                        setCurrentPrice(newPrice);
+                        updateGridPositions(newPrice);
+                     }
+                 }
+            }
         }
       } catch (err) {
         if (err.name !== 'AbortError' && isMounted) {
@@ -381,27 +462,23 @@ export default function App() {
         }
       }
     };
+
     fetchData();
-    const timer = setInterval(fetchData, 3000);
+    const timer = setInterval(fetchData, 5000); // 5秒更新一次
     return () => { isMounted = false; clearInterval(timer); controller.abort(); };
   }, [symbol, timeframe]);
 
-  // 🔥🔥🔥 Modified handleTrade to support new grid params 🔥🔥🔥
   const handleTrade = (advancedParams = {}) => {
-    // 1. 基礎檢查
     if (!currentPrice || currentPrice <= 0) return alert('價格載入中...');
     
-    // 從進階參數解構 (如果有的話)
+    // 🔥 修改：解構出 TP/SL 參數，供一般交易使用
     const { gridSpacingType, triggerPrice, stopLoss, takeProfit } = advancedParams;
-
+    
     const executionPrice = orderType === 'limit' ? parseFloat(priceInput) : currentPrice;
     const val = parseFloat(amount);
     
     if (!val || val <= 0) return alert('請輸入有效數量');
 
-    // ----------------------
-    // GRID TRADING LOGIC
-    // ----------------------
     if (tradeMode === 'grid') {
         const totalInvestment = val; 
         if (totalInvestment > balance) return alert('資金不足');
@@ -413,19 +490,16 @@ export default function App() {
 
         if (!min || !max || min >= max || count < 2) return alert('無效範圍或格數');
         
-        // --- 計算網格間距 (支援等差與等比) ---
         let levels = [];
         let step = 0;
 
         if (gridSpacingType === 'geometric') {
-             // 等比數列: ratio = (max/min)^(1/n)
              const ratio = Math.pow(max / min, 1 / (count - 1));
              for (let i = 0; i < count; i++) {
                  levels.push(min * Math.pow(ratio, i));
              }
-             step = 0; // 等比不適用固定 step
+             step = 0; 
         } else {
-             // 等差數列 (預設)
              const priceDiff = max - min;
              step = priceDiff / (count - 1);
              for (let i = 0; i < count; i++) {
@@ -436,7 +510,6 @@ export default function App() {
         const totalNotional = totalInvestment * lev;
         const basePositionSize = totalNotional / count; 
 
-        // 初始掛單線
         const initialGridLines = levels.map(p => {
             if (gridDirection === 'long') return { price: p, type: 'buy' };
             if (gridDirection === 'short') return { price: p, type: 'sell' };
@@ -446,33 +519,11 @@ export default function App() {
         const gridMode = gridType === 'spot' ? 'grid_spot' : 'grid_futures';
         
         const newOrder = { 
-            id: Date.now(), 
-            symbol, 
-            mode: gridMode, 
-            status: 'active', 
-            amount: totalInvestment, 
-            leverage: lev,
-            gridLower: min, 
-            gridUpper: max, 
-            gridLevels: count, 
-            gridStep: step, 
-            gridDirection,
-            
-            // 儲存進階參數
-            gridSpacingType: gridSpacingType || 'arithmetic',
-            triggerPrice: triggerPrice || null,
-            stopLoss: stopLoss || null,
-            takeProfit: takeProfit || null,
-
-            // 核心邏輯參數
-            gridLevelsList: levels,
-            basePositionSize: basePositionSize,
-            subPositions: [], // 初始無子倉位
-            gridLines: initialGridLines, 
-            
-            realizedProfit: 0, 
-            matchedCount: 0,
-            entryPrice: currentPrice 
+            id: Date.now(), symbol, mode: gridMode, status: 'active', amount: totalInvestment, leverage: lev,
+            gridLower: min, gridUpper: max, gridLevels: count, gridStep: step, gridDirection,
+            gridSpacingType: gridSpacingType || 'arithmetic', triggerPrice: triggerPrice || null, stopLoss: stopLoss || null, takeProfit: takeProfit || null,
+            gridLevelsList: levels, basePositionSize: basePositionSize, subPositions: [], gridLines: initialGridLines, 
+            realizedProfit: 0, matchedCount: 0, entryPrice: currentPrice 
         };
 
         setPositions(prev => [newOrder, ...prev]);
@@ -487,9 +538,6 @@ export default function App() {
         return;
     }
 
-    // ----------------------
-    // MANUAL TRADING LOGIC
-    // ----------------------
     let usdtValue, coinSize, margin;
     if (tradeMode === 'spot') {
         usdtValue = amountType === 'usdt' ? val : val * executionPrice;
@@ -507,11 +555,29 @@ export default function App() {
         }
     }
     if (margin > balance) return alert(`資金不足！需要保證金: ${margin.toFixed(2)} USDT`);
+    
     if (orderType === 'limit') {
-          const newOrder = { id: Date.now(), symbol, mode: tradeMode, type: 'limit', side, price: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, status: 'pending', time: new Date().toLocaleTimeString(), isBot: false };
+          const newOrder = { 
+              id: Date.now(), symbol, mode: tradeMode, type: 'limit', side, 
+              price: executionPrice, amount: usdtValue, size: coinSize, 
+              leverage: tradeMode === 'futures' ? leverage : 1, 
+              status: 'pending', 
+              time: new Date().toLocaleString(), // 顯示完整日期時間
+              tp: takeProfit || null, // 儲存止盈
+              sl: stopLoss || null,   // 儲存止損
+              isBot: false 
+          };
           setOrders(prev => [newOrder, ...prev]);
     } else {
-          const newPos = { id: Date.now(), symbol, mode: tradeMode, side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage: tradeMode === 'futures' ? leverage : 1, margin, isBot: false };
+          const newPos = { 
+              id: Date.now(), symbol, mode: tradeMode, side, 
+              entryPrice: executionPrice, amount: usdtValue, size: coinSize, 
+              leverage: tradeMode === 'futures' ? leverage : 1, 
+              margin, 
+              tp: takeProfit || null, // 儲存止盈
+              sl: stopLoss || null,   // 儲存止損
+              isBot: false 
+          };
           setPositions(prev => [newPos, ...prev]);
     }
     setBalance(p => p - margin); setAmount('');
@@ -552,13 +618,9 @@ export default function App() {
       if (pos.mode === 'futures') return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * pos.size;
 
       if (pos.mode === 'grid_futures' || pos.mode === 'grid_spot') {
-          // 🔥 防崩潰：如果 subPositions 不存在，回傳 0
           if (!pos.subPositions || pos.subPositions.length === 0) return 0;
-          
           return pos.subPositions.reduce((total, subPos) => {
-              const diff = subPos.direction === 'long' 
-                  ? (price - subPos.entryPrice) 
-                  : (subPos.entryPrice - price);
+              const diff = subPos.direction === 'long' ? (price - subPos.entryPrice) : (subPos.entryPrice - price);
               return total + (diff * subPos.sizeInCoin);
           }, 0);
       }
@@ -569,7 +631,6 @@ export default function App() {
       let pnl = 0;
       if (pos.symbol === symbol) pnl = calculatePnL(pos, currentPrice);
       if (isNaN(pnl)) pnl = 0;
-      
       if (pos.mode === 'grid_spot' || pos.mode === 'grid_futures') {
           return acc + pos.amount + (pos.realizedProfit || 0) + pnl;
       }
@@ -598,9 +659,6 @@ export default function App() {
               currentPrice={currentPrice}
               onBack={handleBackToDashboard}
               calculatePnL={calculatePnL}
-              klineData={klineData}
-              timeframe={timeframe}         
-              setTimeframe={setTimeframe}   
           />
       );
   }

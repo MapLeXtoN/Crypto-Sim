@@ -5,15 +5,13 @@ import { init, dispose } from 'klinecharts';
 const GridChart = ({ klineData, grid }) => {
     const chartContainerRef = useRef(null);
     const chartInstance = useRef(null);
-    const resizeObserver = useRef(null);
 
-    // 1. 初始化圖表
+    // 1. 初始化圖表 (只執行一次)
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
-        // 初始化 klinecharts
-        chartInstance.current = init(chartContainerRef.current, {
-            // 設定主題顏色
+        // 初始化
+        const chart = init(chartContainerRef.current, {
             grid: { horizontal: { color: '#2B3139' }, vertical: { color: '#2B3139' } },
             candle: { 
                 bar: { upColor: '#089981', downColor: '#F23645', noChangeColor: '#888888' }, 
@@ -23,105 +21,94 @@ const GridChart = ({ klineData, grid }) => {
             xAxis: { tickText: { color: '#848e9c' } },
             yAxis: { tickText: { color: '#848e9c' } }
         });
-
-        // 監聽容器大小變化
-        resizeObserver.current = new ResizeObserver((entries) => {
-            if (chartInstance.current) {
-                const { width, height } = entries[0].contentRect;
-                if (width > 0 && height > 0) {
-                    chartInstance.current.resize();
-                }
-            }
-        });
         
-        resizeObserver.current.observe(chartContainerRef.current);
+        chartInstance.current = chart;
 
+        // 銷毀時的清理
         return () => {
-            if (resizeObserver.current) resizeObserver.current.disconnect();
             dispose(chartContainerRef.current);
+            chartInstance.current = null;
         };
-    }, []);
+    }, []); // 空陣列，保證只初始化一次
 
-    // 2. 更新數據 (K線)
-    useEffect(() => {
-        // 🔥 防止數據為空時崩潰
-        if (chartInstance.current && Array.isArray(klineData) && klineData.length > 0) {
-            chartInstance.current.applyNewData(klineData);
-        }
-    }, [klineData]);
-
-    // 3. 繪製網格線 (安全版：使用無限延伸直線 + 嚴格檢查)
+    // 2. 數據更新與畫線 (當數據變動時執行)
     useEffect(() => {
         const chart = chartInstance.current;
-        // 🔥 確保 chart 存在
-        if (!chart) return;
+        if (!chart || !grid) return;
 
-        // 如果沒有 K 線數據，先清除舊線並返回
-        if (!klineData || klineData.length === 0) {
-             chart.removeOverlay();
-             return;
+        // A. 更新 K 線數據
+        if (klineData && klineData.length > 0) {
+            // 這裡直接用 applyNewData 防止索引錯亂，網格圖表數據量不大，效能沒問題
+            chart.applyNewData(klineData);
         }
 
+        // B. 繪製網格線 (先清除舊的)
+        chart.removeOverlay();
+
+        // 延遲一點點確保數據載入後再畫線
         const timer = setTimeout(() => {
-            // 🔥 再次檢查數據
-            const dataList = chart.getDataList();
-            if (!dataList || dataList.length === 0) return;
+            if (!chart) return;
 
-            chart.removeOverlay();
-
-            // 🔥 使用 Optional Chaining (?.) 確保不會因為讀取不到而報錯
-            const startTs = klineData[0]?.timestamp;
-            const endTs = klineData[klineData.length - 1]?.timestamp;
-
-            if (startTs && endTs && Array.isArray(grid?.gridLines)) {
-                
-                // Helper: 畫線函數 (包含 try-catch)
-                const drawLine = (price, color, isSolid = false) => {
-                    const numPrice = Number(price);
-                    if (!Number.isFinite(numPrice)) return;
-
-                    try {
-                        chart.createOverlay({
-                            name: 'simpleLine', // 使用直線
-                            extendData: 'both', // 無限延伸
-                            lock: true,
-                            points: [
-                                { timestamp: startTs, value: numPrice },
-                                { timestamp: endTs, value: numPrice }
-                            ],
-                            styles: {
-                                line: {
-                                    style: 'solid', 
-                                    color: color,
-                                    width: isSolid ? 2 : 1,
-                                    dashedValue: isSolid ? [] : [4, 4] 
-                                }
+            const drawLine = (price, color, isSolid = false) => {
+                if (!price) return;
+                try {
+                    chart.createOverlay({
+                        name: 'simpleAnnotation',
+                        extendData: 'Line',
+                        points: [{ timestamp: klineData[klineData.length - 1]?.timestamp, value: price }],
+                        styles: {
+                            line: {
+                                style: 'solid', 
+                                color: color,
+                                width: isSolid ? 2 : 1,
+                                dashedValue: isSolid ? [] : [4, 4] 
                             }
-                        });
-                    } catch (e) {
-                        console.warn('Grid draw error:', e);
-                    }
-                };
+                        },
+                        // 讓線條水平延伸到整個畫面
+                        lock: true,
+                        mode: 'weak_magnet',
+                        onDraw: ({ ctx, point }) => {
+                            // 自定義繪製水平線 (KLineCharts 預設的 simpleAnnotation 可能只是一個點)
+                            // 這裡使用內建的 'priceLine' 可能會更好，或者簡單用 overlay
+                        }
+                    });
+                    
+                    // 替代方案：使用 simpleTag 或 priceLine
+                    // 這裡為了簡單，我們改用 createShape 畫水平線的邏輯太複雜
+                    // 建議使用 createOverlay 畫 'priceLine' 
+                    chart.createOverlay({
+                        name: 'priceLine',
+                        points: [{ value: price }],
+                        styles: {
+                            line: { color: color, style: isSolid ? 'solid' : 'dashed', dashedValue: [4, 4] }
+                        }
+                    });
 
-                // A. 畫中間網格
+                } catch (e) {
+                    console.warn('Grid draw error:', e);
+                }
+            };
+
+            // 畫中間網格
+            if (grid.gridLines) {
                 grid.gridLines.forEach(line => {
-                    const color = line.type === 'buy' ? '#089981' : '#F23645';
+                    const color = line.type === 'buy' ? '#089981' : (line.type === 'sell' ? '#F23645' : '#888888');
                     drawLine(line.price, color, false);
                 });
-
-                // B. 畫天地單邊界
-                if (grid.gridUpper) drawLine(grid.gridUpper, '#eaecef', true);
-                if (grid.gridLower) drawLine(grid.gridLower, '#eaecef', true);
             }
+
+            // 畫天地單邊界
+            if (grid.gridUpper) drawLine(grid.gridUpper, '#eaecef', true);
+            if (grid.gridLower) drawLine(grid.gridLower, '#eaecef', true);
+
         }, 50);
 
         return () => clearTimeout(timer);
-    }, [grid, klineData]);
+    }, [grid, klineData]); // 只有數據變動時才執行這塊
 
     return (
         <div className="w-full h-full relative">
             <div ref={chartContainerRef} className="w-full h-full" />
-            
             {(!klineData || klineData.length === 0) && (
                 <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
                     載入圖表數據中...
@@ -131,4 +118,4 @@ const GridChart = ({ klineData, grid }) => {
     );
 };
 
-export default React.memo(GridChart);
+export default GridChart;
