@@ -12,7 +12,8 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                 {positions.filter(p => p.mode === 'futures').map(pos => {
                     const isCurrent = pos.symbol === symbol;
                     const pnl = isCurrent ? calculatePnL(pos, currentPrice) : 0;
-                    const roe = (pnl/pos.margin)*100;
+                    // 🔥 修正：避免除以 0
+                    const roe = (pos.margin && pos.margin > 0) ? (pnl/pos.margin)*100 : 0;
                     return (
                         <tr key={pos.id} className={`border-b border-[#2b3139] ${!isCurrent?'opacity-50':''}`}>
                             <td className="pl-4 py-2 font-bold">{pos.symbol} <span className="bg-[#474d57] px-1 rounded text-[10px]">{pos.leverage}x</span></td>

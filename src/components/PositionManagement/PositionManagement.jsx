@@ -1,17 +1,15 @@
 // src/components/PositionManagement/PositionManagement.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LayoutList, BarChart2, Grid3X3 } from 'lucide-react';
 
-// 引用修正後的路徑
 import SpotGrid from './SpotGrid'; 
 import FuturesGrid from './FuturesGrid'; 
-
 import SpotView from './SpotMarket'; 
 import FuturesView from './FuturesTrading'; 
 
 const TransactionDetails = ({ 
     filteredData, currentPrice, closePosition, cancelOrder, calculatePnL, symbol,
-    onGridSelect, activeGridId // 🔥 接收這兩個新 Props
+    onGridSelect, activeGridId 
 }) => {
     
     const [category, setCategory] = useState('spot'); 
@@ -20,7 +18,21 @@ const TransactionDetails = ({
 
     const safeData = filteredData?.data || { pos: [], ord: [], history: [] };
 
-    // ... (getTabClass 樣式函數保持不變) ...
+    useEffect(() => {
+        if (activeGridId && safeData.pos.length > 0) {
+            const targetGrid = safeData.pos.find(p => p.id === activeGridId);
+            if (targetGrid) {
+                if (targetGrid.mode === 'grid_spot') {
+                    setCategory('grid');
+                    setGridType('spot');
+                } else if (targetGrid.mode === 'grid_futures') {
+                    setCategory('grid');
+                    setGridType('futures');
+                }
+            }
+        }
+    }, [activeGridId, safeData.pos]);
+
     const getTabClass = (active) => 
         `flex-1 py-3 text-sm font-bold flex items-center justify-center gap-2 cursor-pointer border-b-2 transition-colors ${
             active 
@@ -31,7 +43,6 @@ const TransactionDetails = ({
     return (
         <div className="h-64 bg-[#1e2329] border-t border-[#2b3139] flex flex-col">
             
-            {/* 1. 頂部主導航 */}
             <div className="flex items-center border-b border-[#2b3139]">
                 <div onClick={() => setCategory('spot')} className={getTabClass(category === 'spot')}>
                     <LayoutList size={16}/> 交易 (現貨)
@@ -44,7 +55,6 @@ const TransactionDetails = ({
                 </div>
             </div>
 
-            {/* 2. 次級控制列 (保持不變) */}
             <div className="px-4 py-2 border-b border-[#2b3139] bg-[#1e2329] flex items-center justify-between min-h-[40px]">
                 {category === 'grid' ? (
                     <div className="flex bg-[#0b0e11] rounded p-0.5">
@@ -60,7 +70,6 @@ const TransactionDetails = ({
                 )}
             </div>
 
-            {/* 3. 內容區域：傳遞 props 給 Grid 組件 */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 {category === 'spot' && (
                     <SpotView subTab={subTab} data={safeData} currentPrice={currentPrice} cancelOrder={cancelOrder} closePosition={closePosition} symbol={symbol} />
@@ -75,12 +84,12 @@ const TransactionDetails = ({
                         {gridType === 'spot' ? (
                             <SpotGrid 
                                 data={safeData} currentPrice={currentPrice} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
-                                onGridSelect={onGridSelect} activeGridId={activeGridId} // 🔥 傳入
+                                onGridSelect={onGridSelect} activeGridId={activeGridId} 
                             />
                         ) : (
                             <FuturesGrid 
                                 data={safeData} currentPrice={currentPrice} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
-                                onGridSelect={onGridSelect} activeGridId={activeGridId} // 🔥 傳入
+                                onGridSelect={onGridSelect} activeGridId={activeGridId} 
                             />
                         )}
                     </>

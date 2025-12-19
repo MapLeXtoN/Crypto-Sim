@@ -1,28 +1,13 @@
 // src/components/PositionManagement/FuturesGrid.jsx
-import React, { useState } from 'react';
+import React from 'react'; // 不需要 useState
 import { XCircle, Activity, FileText } from 'lucide-react';
-import GridDetails from './Griddetails'; // 🔥 引入詳情組件
+// 移除 GridDetails 引用
 
 const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, activeGridId }) => {
     const positions = data?.pos || [];
 
-    // 🔥 新增：控制詳情彈窗的狀態
-    const [detailGridId, setDetailGridId] = useState(null);
-    const selectedGrid = positions.find(p => p.id === detailGridId);
-
     return (
         <div>
-            {/* 🔥 渲染詳情彈窗 */}
-            {selectedGrid && (
-                <GridDetails 
-                    grid={selectedGrid} 
-                    currentPrice={currentPrice} 
-                    calculatePnL={calculatePnL}
-                    closePosition={closePosition}
-                    onClose={() => setDetailGridId(null)}
-                />
-            )}
-
             <div className="bg-[#1e2329] px-4 py-2 text-xs text-[#f0b90b] font-bold border-b border-[#2b3139] flex items-center gap-2">
                 <Activity size={14}/> 運行中 - 合約網格策略
             </div>
@@ -36,7 +21,7 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                         <th>當前利潤</th>
                         <th>狀態</th>
                         <th>操作</th>
-                        <th className="pr-4 text-right">詳情</th> {/* 🔥 新增表頭 */}
+                        <th className="pr-4 text-right">詳情</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -53,7 +38,7 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                          return (
                             <tr 
                                 key={pos.id} 
-                                onClick={() => onGridSelect && onGridSelect(pos.id)}
+                                onClick={() => onGridSelect && onGridSelect(pos.id)} // 點擊整行也能觸發
                                 className={`border-b border-[#2b3139] cursor-pointer transition-colors ${isActive ? 'bg-[#2b3139] border-l-2 border-l-[#f0b90b]' : 'hover:bg-[#2b3139]'}`}
                             >
                                 <td className="pl-4 py-2 font-bold">
@@ -78,12 +63,12 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                                         <XCircle size={12}/> 停止策略
                                     </button>
                                 </td>
-                                {/* 🔥 新增詳情按鈕 */}
                                 <td className="pr-4 text-right">
+                                    {/* 🔥 修改這裡：直接呼叫 props 傳下來的切換函數 */}
                                     <button 
                                         onClick={(e) => {
-                                            e.stopPropagation(); // 避免觸發行選中
-                                            setDetailGridId(pos.id);
+                                            e.stopPropagation();
+                                            if (onGridSelect) onGridSelect(pos.id);
                                         }}
                                         className="text-[#848e9c] hover:text-[#f0b90b] transition-colors"
                                     >
