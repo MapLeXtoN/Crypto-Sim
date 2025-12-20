@@ -48,10 +48,12 @@ const GridDetails = ({ grid, currentPrice, onClose, calculatePnL, closePosition 
                                 {grid.symbol.substring(0,1)}
                             </div>
                             <h2 className="text-lg font-bold text-[#eaecef]">{grid.symbol} {grid.mode === 'grid_spot' ? '現貨網格' : '合約網格'}</h2>
+                            {grid.mode === 'grid_futures' && (
                             <span className={`text-xs px-1.5 py-0.5 border rounded ${dirTagColor}`}>
-                                {grid.mode === 'grid_futures' ? `${grid.leverage}x ` : ''}{dirText}
+                                {grid.leverage}x {dirText}
                             </span>
-                        </div>
+                        )}
+                    </div>
                         <div className="text-xs text-[#848e9c]">
                             運行時長 {durationStr} &nbsp; {createTimeStr} 創建
                         </div>
@@ -112,16 +114,6 @@ const GridDetails = ({ grid, currentPrice, onClose, calculatePnL, closePosition 
                         <div>
                             <div className="text-xs text-[#848e9c] mb-1">24h/總套利次數</div>
                             <div className="text-sm font-bold text-[#eaecef]">{matchedCount}次 <span className="text-[#848e9c] font-normal">({matchedCount}次)</span></div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-[#848e9c] mb-1">額外保證金(USDT)</div>
-                            <div className="text-sm font-bold text-[#eaecef]">0.00 <span className="text-[#f0b90b] text-xs">✎</span></div>
-                        </div>
-                        <div>
-                            <div className="text-xs text-[#848e9c] mb-1">預估強平價(USDT)</div>
-                            <div className="text-sm font-bold text-[#eaecef]">
-                                {grid.mode === 'grid_futures' ? (grid.gridDirection === 'long' ? (grid.gridLower * 0.5).toFixed(2) : (grid.gridUpper * 1.5).toFixed(2)) : '--'}
-                            </div>
                         </div>
                         <div>
                             <div className="text-xs text-[#848e9c] mb-1">開單時價格(USDT)</div>

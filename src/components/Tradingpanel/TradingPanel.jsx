@@ -75,7 +75,6 @@ const TradingPanel = ({
     }, [currentPrice, leverage, gridDirection, gridType]);
 
     // 3. 計算 實際投資 與 額外保證金 (當開啟預留保證金時)
-    // 這裡採用模擬邏輯：假設系統自動預留 15% 作為緩衝
     const investmentSplit = useMemo(() => {
         if (!amount || isNaN(amount)) return { invest: '--', margin: '--' };
         const total = parseFloat(amount);
@@ -154,12 +153,14 @@ const TradingPanel = ({
                             <button onClick={()=>setGridType('futures')} className={`flex-1 py-1 text-xs rounded ${gridType==='futures'?'bg-[#474d57] text-white font-bold':'text-[#848e9c]'}`}>合約網格</button>
                         </div>
 
-                        {/* 方向選擇 */}
-                        <div className="flex gap-2">
-                            {renderDirectionBtn('long', '做多', 'bg-[#089981]')}
-                            {renderDirectionBtn('short', '做空', 'bg-[#F23645]')}
-                            {renderDirectionBtn('neutral', '中性', 'bg-[#848e9c]')}
-                        </div>
+                        {/* 修正2️⃣：補回「做多／做空／中性」方向選擇按鈕，僅在合約網格模式下顯示 */}
+                        {gridType === 'futures' && (
+                            <div className="flex gap-2">
+                                {renderDirectionBtn('long', '做多', 'bg-[#089981]')}
+                                {renderDirectionBtn('short', '做空', 'bg-[#F23645]')}
+                                {renderDirectionBtn('neutral', '中性', 'bg-[#848e9c]')}
+                            </div>
+                        )}
 
                         {/* 1. 設定價格範圍 */}
                         <div>
@@ -199,7 +200,6 @@ const TradingPanel = ({
                                     onChange={(e) => setGridLevels(e.target.value)}
                                     className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2.5 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none"
                                 />
-                                <div className="absolute right-2 top-2 bg-[#2b3139] px-1.5 py-0.5 rounded text-[10px] text-[#eaecef] border border-[#474d57] cursor-pointer hover:bg-[#474d57]">推薦</div>
                             </div>
                             <div className="text-[10px] text-[#848e9c] flex justify-between">
                                 <span>預估每次套利利潤率 :</span>
@@ -207,19 +207,7 @@ const TradingPanel = ({
                             </div>
                         </div>
 
-                        {/* 預覽網格 */}
-                        <div className="flex justify-end items-center gap-2">
-                            <input 
-                                type="checkbox" 
-                                id="preview" 
-                                checked={previewGrid}
-                                onChange={(e) => setPreviewGrid(e.target.checked)}
-                                className="w-3 h-3 accent-[#f0b90b] cursor-pointer" 
-                            />
-                            <label htmlFor="preview" className="text-xs text-[#f0b90b] cursor-pointer select-none">預覽網格</label>
-                        </div>
-
-                        {/* 3. 輸入投資額 (更新重點區塊) */}
+                        {/* 3. 輸入投資額 */}
                         <div>
                             <div className="flex justify-between items-center mb-2">
                                 <div className="text-xs font-bold text-[#eaecef] border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">3.輸入投資額</div>
@@ -228,7 +216,7 @@ const TradingPanel = ({
                                         type="checkbox" 
                                         id="reserve" 
                                         checked={reserveMargin}
-                                        onChange={(e) => setReserveMargin(e.target.checked)} // 🔥 修正：使用 checked
+                                        onChange={(e) => setReserveMargin(e.target.checked)}
                                         className="w-3 h-3 accent-[#f0b90b] cursor-pointer"
                                     />
                                     <label htmlFor="reserve" className="text-[10px] text-[#eaecef] cursor-pointer select-none">自動預留保證金</label>
@@ -241,16 +229,13 @@ const TradingPanel = ({
                                     placeholder="投資額 (USDT)"
                                     value={amount}
                                     onChange={(e) => setAmount(e.target.value)}
-                                    // 🔥 修改：增加 pb-6 給底部文字留空間，如果有開啟預留保證金的話
                                     className={`w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-3 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none pr-12 ${reserveMargin ? 'pb-7' : ''}`}
                                 />
                                 
-                                {/* 槓桿倍數標籤 */}
                                 <div className="absolute right-2 top-2 bg-[#2b3139] px-2 py-1 rounded text-xs text-[#eaecef] font-bold border border-[#474d57] flex items-center gap-1">
                                     {leverage}x
                                 </div>
 
-                                {/* 🔥 新增：預留保證金分配顯示 */}
                                 {reserveMargin && (
                                     <div className="absolute bottom-1.5 left-3 text-[10px] text-[#5e6673] font-mono whitespace-nowrap overflow-hidden text-ellipsis w-[90%]">
                                         實際投資 ({investmentSplit.invest}) + 額外保證金 ({investmentSplit.margin}) USDT
@@ -279,6 +264,8 @@ const TradingPanel = ({
                                 <div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount ? (parseFloat(amount) * leverage).toFixed(2) : '0'} USDT</span></div>
                                 <div className="flex justify-between"><span>預估強平價:</span><span className="text-[#f0b90b]">{estimatedLiqPrice} USDT</span></div>
                             </div>
+
+                            {/* 修正1️⃣：已移除此處原本錯誤且重複出現的現貨/合約切換按鈕區塊 */}
                         </div>
 
                         {/* 進階設定 */}

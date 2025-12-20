@@ -29,11 +29,6 @@ const SpotGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onG
                          const floatPnl = isCurrent ? calculatePnL(pos, currentPrice) : 0;
                          const isActive = activeGridId === pos.id;
 
-                         let dirColor = 'text-[#848e9c]';
-                         let dirText = '中性';
-                         if (pos.gridDirection === 'long') { dirColor = 'text-[#089981]'; dirText = '做多'; }
-                         if (pos.gridDirection === 'short') { dirColor = 'text-[#F23645]'; dirText = '做空'; }
-
                          return (
                             <tr 
                                 key={pos.id} 

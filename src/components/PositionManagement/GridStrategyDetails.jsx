@@ -81,10 +81,6 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
                             <div className="text-xs text-[#848e9c] mb-1">投資額</div>
                             <div className="text-sm text-[#eaecef]">{grid.amount} USDT</div>
                         </div>
-                        <div>
-                            <div className="text-xs text-[#848e9c] mb-1">方向</div>
-                            <div className="text-sm text-[#f0b90b] uppercase">{grid.gridDirection}</div>
-                        </div>
                     </div>
                 </div>
             </div>
