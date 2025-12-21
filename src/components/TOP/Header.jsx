@@ -4,7 +4,7 @@ import ChangeCoin from './ChangeCoin';
 import UserProfile from './UserProfile';
 import UserProfileSet from './UserProfileSet';
 
-const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetAccount, setUser, history = [], positions = [], feeSettings, setFeeSettings, selectedExchange, setSelectedExchange }) => {
+const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetAccount, setUser, history = [], positions = [], feeSettings, setFeeSettings, selectedExchange, setSelectedExchange, heldCoins }) => {
   const [showSettings, setShowSettings] = useState(false);
 
   return (
@@ -21,6 +21,7 @@ const Header = ({ symbol, setSymbol, currentPrice, equity, balance, user, resetA
             feeSettings={feeSettings} setFeeSettings={setFeeSettings}
             selectedExchange={selectedExchange} setSelectedExchange={setSelectedExchange}
             onClose={() => setShowSettings(false)}
+            heldCoins={heldCoins}
         />
       )}
     </>

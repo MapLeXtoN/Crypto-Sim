@@ -1,6 +1,6 @@
 // src/components/TradingPanel/TradingPanel.jsx
-import React, { useState, useMemo } from 'react';
-import { ChevronDown, ChevronUp, Settings2, Info } from 'lucide-react';
+import React, { useState, useMemo } from "react";
+import { ChevronDown, ChevronUp, Settings2, Info } from "lucide-react";
 
 const TradingPanel = ({
     tradeMode, setTradeMode,
@@ -14,6 +14,10 @@ const TradingPanel = ({
     balance,
     handleTrade,
     currentPrice,
+    // 合約開單模式控制參數
+    futuresInputMode, setFuturesInputMode,
+    // 接收手續費與交易所設定
+    feeSettings, selectedExchange,
     // Grid specific props
     gridType, setGridType,
     gridLevels, setGridLevels,
@@ -24,14 +28,14 @@ const TradingPanel = ({
 }) => {
     // --- 內部 UI 狀態 ---
     const [showAdvanced, setShowAdvanced] = useState(false);
-    const [gridSpacingType, setGridSpacingType] = useState('arithmetic');
+    const [gridSpacingType, setGridSpacingType] = useState("arithmetic");
     const [previewGrid, setPreviewGrid] = useState(false);
     
     // 進階參數
-    const [triggerPrice, setTriggerPrice] = useState('');
-    const [stopLoss, setStopLoss] = useState('');
-    const [takeProfit, setTakeProfit] = useState('');
-    const [slippage, setSlippage] = useState('0.1%');
+    const [triggerPrice, setTriggerPrice] = useState("");
+    const [stopLoss, setStopLoss] = useState("");
+    const [takeProfit, setTakeProfit] = useState("");
+    const [slippage, setSlippage] = useState("0.1%");
 
     // --- 計算邏輯 ---
 
@@ -40,9 +44,9 @@ const TradingPanel = ({
         const lower = parseFloat(gridLowerPrice);
         const upper = parseFloat(gridUpperPrice);
         const count = parseInt(gridLevels);
-        if (!lower || !upper || !count || lower >= upper || count < 2) return '--';
+        if (!lower || !upper || !count || lower >= upper || count < 2) return "--";
         
-        if (gridSpacingType === 'arithmetic') {
+        if (gridSpacingType === "arithmetic") {
             const priceDiff = upper - lower;
             const step = priceDiff / count;
             const avgPrice = (lower + upper) / 2;
@@ -59,32 +63,66 @@ const TradingPanel = ({
 
     // 2. 預估強平價
     const estimatedLiqPrice = useMemo(() => {
-        if (gridType === 'spot' || !currentPrice || !leverage) return '--';
+        if (gridType === "spot" || !currentPrice || !leverage) return "--";
         const entry = currentPrice;
         const lev = parseFloat(leverage);
         const maintMargin = 0.005;
         
-        if (gridDirection === 'long') {
+        if (gridDirection === "long") {
             const liq = entry * (1 - (1 / lev) + maintMargin);
-            return liq > 0 ? liq.toFixed(2) : '0.00';
-        } else if (gridDirection === 'short') {
+            return liq > 0 ? liq.toFixed(2) : "0.00";
+        } else if (gridDirection === "short") {
             const liq = entry * (1 + (1 / lev) - maintMargin);
             return liq.toFixed(2);
         }
-        return '--';
+        return "--";
     }, [currentPrice, leverage, gridDirection, gridType]);
 
-    // 3. 計算 實際投資 與 額外保證金 (當開啟預留保證金時)
+    // 3. 計算 實際投資 與 額外保證金
     const investmentSplit = useMemo(() => {
-        if (!amount || isNaN(amount)) return { invest: '--', margin: '--' };
+        if (!amount || isNaN(amount)) return { invest: "--", margin: "--" };
         const total = parseFloat(amount);
-        const marginPart = total * 0.15; // 15% 預留
-        const investPart = total - marginPart; // 85% 實際投資
+        const marginPart = total * 0.15;
+        const investPart = total - marginPart;
         return { 
             invest: investPart.toFixed(2), 
             margin: marginPart.toFixed(2) 
         };
     }, [amount]);
+
+    // 4. 預估現貨交易資訊 (修正費率連動邏輯)
+    const spotInfo = useMemo(() => {
+        const val = parseFloat(amount) || 0;
+        const takerRate = feeSettings?.spotTaker || 0.1;
+        const coinName = symbol.replace("USDT", "");
+        
+        let estValue = 0;
+        let feeUsdt = 0;
+        let feeCoin = 0;
+
+        if (amountType === "usdt") {
+            estValue = currentPrice > 0 ? val / currentPrice : 0;
+            feeUsdt = val * (takerRate / 100);
+            feeCoin = currentPrice > 0 ? feeUsdt / currentPrice : 0;
+            return {
+                label: "預估購入數量:",
+                value: `${estValue.toFixed(4)} ${coinName}`,
+                fee: `${feeUsdt.toFixed(4)} USDT / ${feeCoin.toFixed(6)} ${coinName}`,
+                rate: takerRate
+            };
+        } else {
+            estValue = val * currentPrice;
+            feeUsdt = estValue * (takerRate / 100);
+            feeCoin = val * (takerRate / 100);
+            return {
+                label: "預估花費金額 (USDT):",
+                value: `${estValue.toFixed(2)} USDT`,
+                fee: `${feeUsdt.toFixed(4)} USDT / ${feeCoin.toFixed(6)} ${coinName}`,
+                rate: takerRate
+            };
+        }
+        // 🛠️ 關鍵修正：將 selectedExchange 與 feeSettings 加入監聽列表
+    }, [amount, amountType, currentPrice, symbol, feeSettings, selectedExchange]);
 
     // --- 提交處理 ---
     const onSubmit = () => {
@@ -107,7 +145,7 @@ const TradingPanel = ({
                 className={`flex-1 py-1.5 rounded text-sm font-bold transition-all ${
                     isActive 
                     ? `${colorClass} text-white shadow-md ring-1 ring-white/20` 
-                    : 'bg-[#2b3139] text-[#848e9c] hover:bg-[#363c45]'
+                    : "bg-[#2b3139] text-[#848e9c] hover:bg-[#363c45]"
                 }`}
             >
                 {label}
@@ -120,49 +158,38 @@ const TradingPanel = ({
             
             {/* 1. 頂部模式分頁 */}
             <div className="flex bg-[#0b0e11] p-1 shrink-0 m-2 rounded">
-                {['spot', 'futures', 'grid'].map(mode => (
+                {["spot", "futures", "grid"].map(mode => (
                     <button
                         key={mode}
                         onClick={() => {
                             setTradeMode(mode);
-                            if (mode === 'grid') {
-                                setGridType('futures');
-                                setGridDirection('long');
+                            if (mode === "grid") {
+                                setGridType("futures");
+                                setGridDirection("long");
                             }
                         }}
                         className={`flex-1 py-1.5 text-xs font-bold rounded transition-colors ${
                             tradeMode === mode 
-                            ? 'bg-[#2b3139] text-[#eaecef] shadow-sm' 
-                            : 'text-[#848e9c] hover:text-[#eaecef]'
+                            ? "bg-[#2b3139] text-[#eaecef] shadow-sm" 
+                            : "text-[#848e9c] hover:text-[#eaecef]"
                         }`}
                     >
-                        {mode === 'spot' ? '現貨' : mode === 'futures' ? '合約' : '網格策略'}
+                        {mode === "spot" ? "現貨" : mode === "futures" ? "合約" : "網格策略"}
                     </button>
                 ))}
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
                 
-                {tradeMode === 'grid' ? (
+                {tradeMode === "grid" ? (
                     // ================= 網格交易介面 =================
                     <div className="flex flex-col gap-5 mt-1">
                         
-                        {/* 網格類型 */}
                         <div className="flex bg-[#2b3139] rounded p-0.5">
-                            <button onClick={()=>setGridType('spot')} className={`flex-1 py-1 text-xs rounded ${gridType==='spot'?'bg-[#474d57] text-white font-bold':'text-[#848e9c]'}`}>現貨網格</button>
-                            <button onClick={()=>setGridType('futures')} className={`flex-1 py-1 text-xs rounded ${gridType==='futures'?'bg-[#474d57] text-white font-bold':'text-[#848e9c]'}`}>合約網格</button>
+                            <button onClick={()=>setGridType("spot")} className={`flex-1 py-1 text-xs rounded ${gridType==="spot"?"bg-[#474d57] text-white font-bold":"text-[#848e9c]"}`}>現貨網格</button>
+                            <button onClick={()=>setGridType("futures")} className={`flex-1 py-1 text-xs rounded ${gridType==="futures"?"bg-[#474d57] text-white font-bold":"text-[#848e9c]"}`}>合約網格</button>
                         </div>
 
-                        {/* 修正2️⃣：補回「做多／做空／中性」方向選擇按鈕，僅在合約網格模式下顯示 */}
-                        {gridType === 'futures' && (
-                            <div className="flex gap-2">
-                                {renderDirectionBtn('long', '做多', 'bg-[#089981]')}
-                                {renderDirectionBtn('short', '做空', 'bg-[#F23645]')}
-                                {renderDirectionBtn('neutral', '中性', 'bg-[#848e9c]')}
-                            </div>
-                        )}
-
-                        {/* 1. 設定價格範圍 */}
                         <div>
                             <div className="text-xs font-bold text-[#eaecef] mb-2 border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">1.設定價格範圍</div>
                             <div className="flex gap-2">
@@ -189,7 +216,6 @@ const TradingPanel = ({
                             </div>
                         </div>
 
-                        {/* 2. 設定網格數量 */}
                         <div>
                             <div className="text-xs font-bold text-[#eaecef] mb-2 border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">2.設定網格數量 <span className="text-[#848e9c] font-normal">(2-200)</span></div>
                             <div className="relative mb-2">
@@ -207,7 +233,6 @@ const TradingPanel = ({
                             </div>
                         </div>
 
-                        {/* 3. 輸入投資額 */}
                         <div>
                             <div className="flex justify-between items-center mb-2">
                                 <div className="text-xs font-bold text-[#eaecef] border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">3.輸入投資額</div>
@@ -229,13 +254,11 @@ const TradingPanel = ({
                                     placeholder="投資額 (USDT)"
                                     value={amount}
                                     onChange={(e) => setAmount(e.target.value)}
-                                    className={`w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-3 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none pr-12 ${reserveMargin ? 'pb-7' : ''}`}
+                                    className={`w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-3 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none pr-12 ${reserveMargin ? "pb-7" : ""}`}
                                 />
-                                
                                 <div className="absolute right-2 top-2 bg-[#2b3139] px-2 py-1 rounded text-xs text-[#eaecef] font-bold border border-[#474d57] flex items-center gap-1">
                                     {leverage}x
                                 </div>
-
                                 {reserveMargin && (
                                     <div className="absolute bottom-1.5 left-3 text-[10px] text-[#5e6673] font-mono whitespace-nowrap overflow-hidden text-ellipsis w-[90%]">
                                         實際投資 ({investmentSplit.invest}) + 額外保證金 ({investmentSplit.margin}) USDT
@@ -243,8 +266,7 @@ const TradingPanel = ({
                                 )}
                             </div>
                             
-                            {/* 槓桿滑桿 */}
-                            {gridType === 'futures' && (
+                            {gridType === "futures" && (
                                 <div className="px-1 mb-2">
                                     <input 
                                         type="range" 
@@ -261,11 +283,13 @@ const TradingPanel = ({
 
                             <div className="text-[10px] text-[#848e9c] space-y-1 mt-3 pb-3 border-b border-[#2b3139]">
                                 <div className="flex justify-between"><span>可用資金:</span><span className="text-[#eaecef] font-bold">{balance.toFixed(2)} USDT</span></div>
-                                <div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount ? (parseFloat(amount) * leverage).toFixed(2) : '0'} USDT</span></div>
+                                <div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount ? (parseFloat(amount) * leverage).toFixed(2) : "0"} USDT</span></div>
                                 <div className="flex justify-between"><span>預估強平價:</span><span className="text-[#f0b90b]">{estimatedLiqPrice} USDT</span></div>
                             </div>
-
-                            {/* 修正1️⃣：已移除此處原本錯誤且重複出現的現貨/合約切換按鈕區塊 */}
+                            <div className="flex bg-[#2b3139] rounded p-0.5">
+                               <button onClick={()=>setGridType("spot")} className={`flex-1 py-1 text-xs rounded ${gridType==="spot"?"bg-[#474d57] text-white font-bold":"text-[#848e9c]"}`}>現貨網格</button>
+                               <button onClick={()=>setGridType("futures")} className={`flex-1 py-1 text-xs rounded ${gridType==="futures"?"bg-[#474d57] text-white font-bold":"text-[#848e9c]"}`}>合約網格</button>
+                            </div>
                         </div>
 
                         {/* 進階設定 */}
@@ -274,7 +298,7 @@ const TradingPanel = ({
                                 onClick={() => setShowAdvanced(!showAdvanced)}
                                 className="flex items-center gap-1 text-xs font-bold text-[#f0b90b] cursor-pointer mb-3 select-none hover:text-[#e0a800]"
                             >
-                                {showAdvanced ? '進階 收起' : '進階 展開'} 
+                                {showAdvanced ? "進階 收起" : "進階 展開"} 
                                 {showAdvanced ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
                             </div>
 
@@ -301,8 +325,8 @@ const TradingPanel = ({
                                     <div className="flex justify-between items-center py-1">
                                         <div className="text-xs text-[#eaecef]">網格掛單模式</div>
                                         <div className="flex bg-[#0b0e11] rounded p-0.5 border border-[#474d57]">
-                                            <button onClick={()=>setGridSpacingType('arithmetic')} className={`px-2 py-0.5 text-[10px] rounded ${gridSpacingType==='arithmetic'?'bg-[#2b3139] text-[#eaecef]':'text-[#5e6673]'}`}>等差間隔</button>
-                                            <button onClick={()=>setGridSpacingType('geometric')} className={`px-2 py-0.5 text-[10px] rounded ${gridSpacingType==='geometric'?'bg-[#2b3139] text-[#eaecef]':'text-[#5e6673]'}`}>等比間隔</button>
+                                            <button onClick={()=>setGridSpacingType("arithmetic")} className={`px-2 py-0.5 text-[10px] rounded ${gridSpacingType==="arithmetic"?"bg-[#2b3139] text-[#eaecef]":"text-[#5e6673]"}`}>等差間隔</button>
+                                            <button onClick={()=>setGridSpacingType("geometric")} className={`px-2 py-0.5 text-[10px] rounded ${gridSpacingType==="geometric"?"bg-[#2b3139] text-[#eaecef]":"text-[#5e6673]"}`}>等比間隔</button>
                                         </div>
                                     </div>
                                     
@@ -318,34 +342,33 @@ const TradingPanel = ({
                         <button 
                             onClick={onSubmit}
                             className={`w-full py-3 rounded font-bold text-white text-sm shadow-lg transition-colors
-                                ${gridDirection === 'long' ? 'bg-[#089981] hover:bg-[#067a65]' : 
-                                  gridDirection === 'short' ? 'bg-[#F23645] hover:bg-[#c22b37]' : 
-                                  'bg-[#f0b90b] hover:bg-[#d9a506] text-black'}
+                                ${gridDirection === "long" ? "bg-[#089981] hover:bg-[#067a65]" : 
+                                  gridDirection === "short" ? "bg-[#F23645] hover:bg-[#c22b37]" : 
+                                  "bg-[#f0b90b] hover:bg-[#d9a506] text-black"}
                             `}
                         >
-                            {gridDirection === 'long' ? '創建做多網格' : 
-                             gridDirection === 'short' ? '創建做空網格' : 
-                             '創建中性網格'}
+                            {gridDirection === "long" ? "創建做多網格" : 
+                             gridDirection === "short" ? "創建做空網格" : 
+                             "創建中性網格"}
                         </button>
 
                     </div>
                 ) : (
-                    // ================= 一般交易介面 (保留原始功能) =================
+                    // ================= 一般交易介面 =================
                     <div className="flex flex-col gap-4 mt-2">
-                        {/* 買賣切換 */}
                         <div className="flex bg-[#2b3139] rounded p-1">
-                            <button onClick={() => setSide('long')} className={`flex-1 py-2 rounded text-sm font-bold transition-all ${side === 'long' ? (tradeMode === 'futures' ? 'bg-[#089981] text-white' : 'bg-[#089981] text-white') : 'text-[#848e9c]'}`}>
-                                {tradeMode === 'futures' ? '做多 (Long)' : '買入 (Buy)'}
+                            <button onClick={() => setSide("long")} className={`flex-1 py-2 rounded text-sm font-bold transition-all ${side === "long" ? "bg-[#089981] text-white" : "text-[#848e9c]"}`}>
+                                {tradeMode === "futures" ? "做多 (Long)" : "買入 (Buy)"}
                             </button>
-                            <button onClick={() => setSide('short')} className={`flex-1 py-2 rounded text-sm font-bold transition-all ${side === 'short' ? (tradeMode === 'futures' ? 'bg-[#F23645] text-white' : 'bg-[#F23645] text-white') : 'text-[#848e9c]'}`}>
-                                {tradeMode === 'futures' ? '做空 (Short)' : '賣出 (Sell)'}
+                            <button onClick={() => setSide("short")} className={`flex-1 py-2 rounded text-sm font-bold transition-all ${side === "short" ? "bg-[#F23645] text-white" : "text-[#848e9c]"}`}>
+                                {tradeMode === "futures" ? "做空 (Short)" : "賣出 (Sell)"}
                             </button>
                         </div>
 
                         <div className="space-y-3">
                             <div className="flex bg-[#2b3139] rounded p-0.5">
-                                <button onClick={()=>setOrderType('limit')} className={`flex-1 py-1 text-xs rounded ${orderType==='limit'?'bg-[#474d57] text-white':'text-[#848e9c]'}`}>限價單</button>
-                                <button onClick={()=>setOrderType('market')} className={`flex-1 py-1 text-xs rounded ${orderType==='market'?'bg-[#474d57] text-white':'text-[#848e9c]'}`}>市價單</button>
+                                <button onClick={()=>setOrderType("limit")} className={`flex-1 py-1 text-xs rounded ${orderType==="limit"?"bg-[#474d57] text-white":"text-[#848e9c]"}`}>限價單</button>
+                                <button onClick={()=>setOrderType("market")} className={`flex-1 py-1 text-xs rounded ${orderType==="market"?"bg-[#474d57] text-white":"text-[#848e9c]"}`}>市價單</button>
                             </div>
 
                             <div>
@@ -354,34 +377,95 @@ const TradingPanel = ({
                                     <span className="cursor-pointer hover:text-white" onClick={()=>setPriceInput(currentPrice.toFixed(2))}>最新: {currentPrice.toFixed(2)}</span>
                                 </div>
                                 <div className="relative">
-                                    <input type="number" disabled={orderType==='market'} value={orderType==='market'?currentPrice:priceInput} onChange={e=>setPriceInput(e.target.value)} className={`w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none ${orderType==='market'?'opacity-50':''}`} />
+                                    <input type="number" disabled={orderType==="market"} value={orderType==="market"?currentPrice:priceInput} onChange={e=>setPriceInput(e.target.value)} className={`w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none ${orderType==="market"?"opacity-50":""}`} />
                                     <span className="absolute right-3 top-2 text-xs text-[#848e9c]">USDT</span>
                                 </div>
                             </div>
 
                             <div>
-                                <div className="text-xs text-[#848e9c] mb-1 flex justify-between">
-                                    <span>數量</span>
-                                    <span onClick={()=>setAmountType(amountType==='usdt'?'coin':'usdt')} className="cursor-pointer text-[#f0b90b]">{amountType.toUpperCase()} 切換</span>
+                                <div className="text-xs text-[#848e9c] mb-1">
+                                    <span>{tradeMode === "futures" ? "下單模式" : "數量"}</span>
                                 </div>
+
+                                {tradeMode === "futures" ? (
+                                    <div className="flex bg-[#2b3139] rounded p-0.5 mb-2">
+                                        <button 
+                                            onClick={() => { setAmountType("usdt"); setFuturesInputMode("value"); }} 
+                                            className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" && futuresInputMode === "value" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c] hover:text-[#eaecef]"}`}
+                                        >
+                                            價值開單
+                                        </button>
+                                        <button 
+                                            onClick={() => { setAmountType("usdt"); setFuturesInputMode("cost"); }} 
+                                            className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" && futuresInputMode === "cost" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c] hover:text-[#eaecef]"}`}
+                                        >
+                                            本金開單
+                                        </button>
+                                        <button 
+                                            onClick={() => { setAmountType("coin"); }} 
+                                            className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "coin" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c] hover:text-[#eaecef]"}`}
+                                        >
+                                            數量開單
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex bg-[#2b3139] rounded p-0.5 mb-2">
+                                        <button onClick={() => setAmountType("usdt")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c] hover:text-[#eaecef]"}`}>以金額買入</button>
+                                        <button onClick={() => setAmountType("coin")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "coin" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c] hover:text-[#eaecef]"}`}>以數量買入</button>
+                                    </div>
+                                )}
+
                                 <div className="relative">
-                                    <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none" />
-                                    <span className="absolute right-3 top-2 text-xs text-[#848e9c]">{amountType === 'usdt' ? 'USDT' : symbol.replace('USDT','')}</span>
+                                    <input 
+                                        type="number" 
+                                        value={amount} 
+                                        onChange={e=>setAmount(e.target.value)} 
+                                        placeholder={
+                                            tradeMode === "futures"
+                                            ? (amountType === "coin" ? "輸入數量" : (futuresInputMode === "cost" ? "輸入本金 (USDT)" : "輸入總價值 (USDT)"))
+                                            : (amountType === "usdt" ? "金額 (USDT)" : "數量")
+                                        }
+                                        className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none" 
+                                    />
+                                    <span className="absolute right-3 top-2 text-xs text-[#848e9c]">{amountType === "usdt" ? "USDT" : symbol.replace("USDT","")}</span>
                                 </div>
                             </div>
 
-                            {tradeMode === 'futures' && (
+                            {/* 動態預估資訊與手續費顯示 (現貨模式) */}
+                            {tradeMode === "spot" && (
+                                <div className="text-[10px] text-[#848e9c] space-y-1 mt-3 pb-3 border-b border-[#2b3139]">
+                                    <div className="flex justify-between">
+                                        <span>可用資金:</span>
+                                        <span className="text-[#eaecef] font-bold">{balance.toFixed(2)} USDT</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>{spotInfo.label}</span>
+                                        <span className="text-[#eaecef]">{spotInfo.value}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>手續費 ({spotInfo.rate}%):</span>
+                                        <span className="text-[#eaecef]">{spotInfo.fee}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {tradeMode === "futures" && (
                                 <div>
                                     <div className="text-xs text-[#848e9c] mb-1">槓桿倍數</div>
                                     <div className="flex items-center gap-2 bg-[#0b0e11] border border-[#474d57] rounded px-2 py-1">
                                         <input type="range" min="1" max="125" value={leverage} onChange={e=>setLeverage(e.target.value)} className="flex-1 h-1 bg-[#474d57] rounded-lg appearance-none cursor-pointer accent-[#f0b90b]" />
                                         <span className="text-sm w-8 text-right font-mono text-[#f0b90b]">{leverage}x</span>
                                     </div>
+                                    <div className="text-[10px] text-[#848e9c] space-y-1 mt-3 pb-3 border-b border-[#2b3139]">
+                                        <div className="flex justify-between"><span>可用資金:</span><span className="text-[#eaecef] font-bold">{balance.toFixed(2)} USDT</span></div>
+                                        <div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount && amountType === "usdt" && futuresInputMode === "cost" ? (parseFloat(amount) * leverage).toFixed(2) : (amount && amountType === "usdt" ? parseFloat(amount).toFixed(2) : (amount ? (parseFloat(amount) * currentPrice).toFixed(2) : "0"))} USDT</span></div>
+                                        <div className="flex justify-between"><span>預估強平價:</span><span className="text-[#f0b90b]">{estimatedLiqPrice} USDT</span></div>
+                                    </div>
                                 </div>
                             )}
 
-                            <button onClick={()=>handleTrade()} className={`w-full py-3 rounded font-bold text-white mt-2 ${side === 'long' ? 'bg-[#089981] hover:bg-[#067a65]' : 'bg-[#F23645] hover:bg-[#c22b37]'}`}>
-                                {side === 'long' ? (tradeMode==='futures'?'開倉做多':'買入') : (tradeMode==='futures'?'開倉做空':'賣出')}
+                            <button onClick={()=>handleTrade()} className={`w-full py-3 rounded font-bold text-white mt-2 ${side === "long" ? "bg-[#089981] hover:bg-[#067a65]" : "bg-[#F23645] hover:bg-[#c22b37]"}`}>
+                                {side === "long" ? (tradeMode==="futures"?"開倉做多":"買入") : (tradeMode==="futures"?"開倉做空":"賣出")}
                             </button>
                         </div>
                     </div>

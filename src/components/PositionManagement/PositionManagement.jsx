@@ -44,7 +44,7 @@ const TransactionDetails = ({
         <div className="h-64 bg-[#1e2329] border-t border-[#2b3139] flex flex-col">
             
             <div className="flex items-center border-b border-[#2b3139]">
-                <div onClick={() => setCategory('spot')} className={getTabClass(category === 'spot')}>
+                <div onClick={() => { setCategory('spot'); if(subTab === 'positions') setSubTab('orders'); }} className={getTabClass(category === 'spot')}>
                     <LayoutList size={16}/> 交易 (現貨)
                 </div>
                 <div onClick={() => setCategory('futures')} className={getTabClass(category === 'futures')}>
@@ -63,7 +63,10 @@ const TransactionDetails = ({
                     </div>
                 ) : (
                     <div className="flex gap-6">
-                        <button onClick={() => setSubTab('positions')} className={`text-xs font-bold transition-colors ${subTab === 'positions' ? 'text-[#f0b90b]' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>當前持倉</button>
+                        {/* 🛠️ 修改：移除現貨下的「當前持倉」按鈕 */}
+                        {category !== 'spot' && (
+                            <button onClick={() => setSubTab('positions')} className={`text-xs font-bold transition-colors ${subTab === 'positions' ? 'text-[#f0b90b]' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>當前持倉</button>
+                        )}
                         <button onClick={() => setSubTab('orders')} className={`text-xs font-bold transition-colors ${subTab === 'orders' ? 'text-[#f0b90b]' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>當前掛單</button>
                         <button onClick={() => setSubTab('history')} className={`text-xs font-bold transition-colors ${subTab === 'history' ? 'text-[#f0b90b]' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>歷史紀錄</button>
                     </div>

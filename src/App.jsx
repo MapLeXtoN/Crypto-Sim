@@ -31,7 +31,6 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [activeGridId, setActiveGridId] = useState(null);
   
-  // 1. 手續費設定
   const [feeSettings, setFeeSettings] = useState({
       vipLevel: 'VIP0', 
       spotMaker: 0.1, 
@@ -41,9 +40,7 @@ export default function App() {
       fundingRate: 0.01
   });
 
-  // 2. 交易所選擇
   const [selectedExchange, setSelectedExchange] = useState('Binance');
-
   const [tradeMode, setTradeMode] = useState('spot');
   const [side, setSide] = useState('long');
   const [amount, setAmount] = useState('');
@@ -61,14 +58,13 @@ export default function App() {
   const [priceInput, setPriceInput] = useState('');
   
   const [mainTab, setMainTab] = useState('spot'); 
-  const [subTab, setSubTab] = useState('positions');
+  const [subTab, setSubTab] = useState('orders');
   
   const [showTimeMenu, setShowTimeMenu] = useState(false);
   const [favorites, setFavorites] = useState(['15m', '1h', '4h', '1d']);
   const [apiError, setApiError] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // 初始化合約邏輯 Hook
   const { 
     handleFuturesTrade, 
     calculateFuturesPnL, 
@@ -82,7 +78,22 @@ export default function App() {
 
   const activeGrid = positions.find(p => p.id === activeGridId) || null;
 
-  // 面板寬度調整
+  // 🛠️ 修改：計算 heldCoins (包含數量與均價)
+  const spotPositions = positions.filter(p => p.mode === 'spot');
+  const groupedCoins = spotPositions.reduce((acc, p) => {
+    const sym = p.symbol.replace('USDT', '');
+    if (!acc[sym]) acc[sym] = { symbol: sym, totalSize: 0, totalAmount: 0 };
+    acc[sym].totalSize += p.size;
+    acc[sym].totalAmount += p.amount;
+    return acc;
+  }, {});
+
+  const heldCoins = Object.values(groupedCoins).map(item => ({
+    symbol: item.symbol,
+    quantity: item.totalSize,
+    avgPrice: item.totalAmount / item.totalSize
+  }));
+
   const [panelWidth, setPanelWidth] = useState(320);
   const panelRef = useRef(null);
   const isResizing = useRef(false);
@@ -124,13 +135,11 @@ export default function App() {
       };
   }, [resize, stopResizing]);
 
-  // Auth 監聽
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
     return () => unsubscribe();
   }, []);
 
-  // Firebase 讀取
   useEffect(() => {
     const loadUserData = async () => {
         if (user) {
@@ -152,7 +161,6 @@ export default function App() {
     loadUserData();
   }, [user]);
 
-  // Firebase 存檔
   useEffect(() => {
     if (user && !authLoading) {
         const timer = setTimeout(async () => {
@@ -185,7 +193,6 @@ export default function App() {
       }
   };
 
-  // 現貨限價單撮合
   useEffect(() => {
     if (!currentPrice || orders.length === 0) return;
     let hasChanges = false;
@@ -221,10 +228,6 @@ export default function App() {
     }
   }, [currentPrice, orders]);
 
-  // 網格邏輯 (省略內部細節以保持可讀性，功能已保留)
-  const updateGridPositions = (price) => { /* ...原本的網格計算邏輯... */ };
-
-  // API 數據抓取
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
@@ -246,7 +249,6 @@ export default function App() {
     return () => { isMounted = false; clearInterval(timer); controller.abort(); };
   }, [symbol, timeframe]);
 
-  // 現貨與合約下單邏輯 (核心修改)
   const handleTrade = (advancedParams = {}) => {
     if (!currentPrice) return alert('價格載入中...');
     const { takeProfit, stopLoss } = advancedParams;
@@ -262,7 +264,6 @@ export default function App() {
     const val = parseFloat(amount);
     if (!val || val <= 0) return alert('數量無效');
 
-    // 鎖定費率：限價用 Maker, 市價用 Taker
     const currentRate = orderType === 'limit' ? feeSettings.spotMaker : feeSettings.spotTaker;
     let usdtValue = amountType === 'usdt' ? val : val * executionPrice;
     let coinSize = amountType === 'usdt' ? val / executionPrice : val;
@@ -277,14 +278,19 @@ export default function App() {
     } else {
         setPositions(prev => [{ ...commonData, id: Date.now(), symbol, mode: 'spot', side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, margin: usdtValue, time: new Date().toLocaleString(), entryFee }, ...prev]);
     }
-    setBalance(p => p - (usdtValue + entryFee)); setAmount('');
+    
+    setBalance(p => p - (usdtValue + entryFee)); 
+    setAmount('');
+
+    if (side === 'long') {
+        alert('買入成功');
+    }
   };
 
   const closePosition = (id) => {
     const pos = positions.find(p => p.id === id); if (!pos) return;
     if (pos.mode === 'futures') { closeFuturesPosition(pos); return; }
     
-    // 使用當初開倉紀錄的費率計算賣出手續費
     const exitFee = (pos.size * currentPrice * (pos.feeRate || 0.1)) / 100;
     const pnl = (currentPrice - pos.entryPrice) * pos.size;
     
@@ -311,7 +317,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-[#0b0e11] text-[#eaecef] overflow-hidden select-none">
-      <Header symbol={symbol} setSymbol={setSymbol} currentPrice={currentPrice} equity={equity} balance={balance} user={user} setUser={setUser} resetAccount={resetAccount} history={history} positions={positions} feeSettings={feeSettings} setFeeSettings={setFeeSettings} selectedExchange={selectedExchange} setSelectedExchange={setSelectedExchange} />
+      <Header symbol={symbol} setSymbol={setSymbol} currentPrice={currentPrice} equity={equity} balance={balance} user={user} setUser={setUser} resetAccount={resetAccount} history={history} positions={positions} feeSettings={feeSettings} setFeeSettings={setFeeSettings} selectedExchange={selectedExchange} setSelectedExchange={setSelectedExchange} heldCoins={heldCoins} />
       <div className="flex flex-1 overflow-hidden">
         <ChartContainer symbol={symbol} timeframe={timeframe} setTimeframe={setTimeframe} klineData={klineData} currentPrice={currentPrice} loading={loading} apiError={apiError} showTimeMenu={showTimeMenu} setShowTimeMenu={setShowTimeMenu} favorites={favorites} toggleFavorite={toggleFavorite} activeGrid={null} />
         <div className="w-1 bg-[#2b3139] hover:bg-[#f0b90b] cursor-col-resize z-50 transition-colors" onMouseDown={startResizing}></div>
