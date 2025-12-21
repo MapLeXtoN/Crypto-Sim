@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Save, User, DollarSign, Settings, Download, TrendingUp, RefreshCcw, Upload } from "lucide-react";
 import { updateProfile, updatePassword } from "firebase/auth";
 import { formatMoney } from "../../utils"; 
+import { INITIAL_BALANCE } from "../../constants"; // 確保獲取基準本金進行 ROI 計算
 
 const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], equity, balance, positions = [], currentPrice, currentSymbol, feeSettings, setFeeSettings, selectedExchange, setSelectedExchange, heldCoins }) => {
     
@@ -16,7 +17,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
     // 費率設定暫存
     const [tempFees, setTempFees] = useState(feeSettings);
 
-    // 🛠️ 根據子分頁過濾歷史紀錄
+    // 根據子分頁過濾歷史紀錄
     const filteredHistory = useMemo(() => {
         const modeMap = {
             "futures": "futures",
@@ -26,6 +27,109 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         };
         return history.filter(item => item.mode === modeMap[transSubTab]);
     }, [history, transSubTab]);
+
+    // 🛠️ 實作專業量化分析 CSV 匯出邏輯
+    const handleExport = () => {
+        const labels = { futures: "合約", spot: "現貨", grid_futures: "合約網格", grid_spot: "現貨網格" };
+        const currentLabel = labels[transSubTab];
+        
+        if (filteredHistory.length === 0) {
+            alert("目前無歷史紀錄可供匯出");
+            return;
+        }
+
+        alert("正在執行量化分析並匯出 [" + currentLabel + "] 報表...");
+
+        // 🛠️ 2️⃣ 專業化標題欄位
+        const headers = ["Trade_ID", "Timestamp", "Pair", "Side", "Executed_Price", "Quantity", "Fee_USDT", "Realized_PnL", "ROI%", "Efficiency"];
+        
+        let totalVolume = 0;
+        let totalFee = 0;
+        let totalPnL = 0;
+
+        // 轉換資料並計算量化指標
+        const rows = filteredHistory.map(item => {
+            const sideText = transSubTab.includes("futures") 
+                ? (item.side === "long" ? "LONG" : "SHORT") 
+                : (item.side === "long" || item.side === "buy" ? "BUY" : "SELL");
+
+            const price = parseFloat(item.entryPrice || item.price || 0);
+            const size = parseFloat(item.size || 0);
+            const amount = parseFloat(item.amount || (price * size));
+            
+            // 手續費計算
+            const fee = parseFloat(item.entryFee || (amount * (item.feeRate || 0) / 100) || 0);
+            
+            // 盈虧與 ROI
+            const pnl = parseFloat(item.pnl || 0);
+            const roi = amount > 0 ? (pnl / amount) * 100 : 0;
+
+            // 🛠️ 1️⃣ 新增指標：交易效率 Efficiency (PnL / Fee)
+            // 若手續費為 0 則顯示 - 避免計算錯誤
+            const efficiency = fee > 0 ? (pnl / fee).toFixed(2) : "-";
+
+            // 累加總計
+            totalVolume += amount;
+            totalFee += fee;
+            totalPnL += pnl;
+
+            return [
+                item.id || "-",
+                item.exitTime || item.time,
+                item.symbol,
+                sideText,
+                price.toFixed(2),
+                size.toFixed(4),
+                fee.toFixed(4),
+                pnl.toFixed(2),
+                roi.toFixed(2) + "%",
+                efficiency
+            ];
+        });
+
+        // 數據總結列
+        const summaryRow = [
+            "SUMMARY",
+            "-",
+            "-",
+            "-",
+            "-",
+            "Total_Volume:",
+            totalVolume.toFixed(2),
+            totalPnL.toFixed(2),
+            "-",
+            "Total_Fee: " + totalFee.toFixed(4)
+        ];
+
+        // 🛠️ 1️⃣ 新增指標：相對於初始本金的總投報率
+        const portfolioRoi = (totalPnL / INITIAL_BALANCE) * 100;
+        const portfolioRow = [
+            "PORTFOLIO_PERFORMANCE",
+            "-",
+            "-",
+            "-",
+            "-",
+            "Initial_Balance: " + INITIAL_BALANCE,
+            "Net_Profit: " + totalPnL.toFixed(2),
+            "Relative_ROI:",
+            portfolioRoi.toFixed(2) + "%",
+            "-"
+        ];
+
+        // 組合內容 (使用 \uFEFF 解決 Excel 中文亂碼)
+        const csvContent = "\uFEFF" + [headers, ...rows, [], summaryRow, portfolioRow].map(e => e.join(",")).join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        
+        // 下載動作
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "Quant_Analysis_" + currentLabel + ".csv");
+        link.style.visibility = "hidden";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     const handleUpdateProfile = async () => {
         if (!displayName.trim()) return;
@@ -38,7 +142,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
 
     const handleExchangeChange = (e) => {
         const exchange = e.target.value;
-        setSelectedExchange(exchange); // 同步 App 狀態
+        setSelectedExchange(exchange); 
 
         let newRates = { ...tempFees };
         switch(exchange) {
@@ -82,13 +186,11 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                         
                         {activeTab === "profile" ? (
                             <div className="space-y-6">
-                                {/* 資產摘要 */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]"><div className="text-xs text-[#848e9c] mb-1">資產總額</div><div className="text-xl font-bold">{formatMoney(equity)}</div></div>
                                     <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]"><div className="text-xs text-[#848e9c] mb-1">可用資金</div><div className="text-xl font-bold">{formatMoney(balance)}</div></div>
                                 </div>
 
-                                {/* 幣種詳細資產表格 */}
                                 <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]">
                                     <div className="text-xs text-[#848e9c] mb-3 font-bold">持有的幣種詳細資產</div>
                                     {heldCoins && heldCoins.length > 0 ? (
@@ -111,7 +213,6 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                     )}
                                 </div>
 
-                                {/* 個人資料設定 */}
                                 <div className="flex gap-4 items-center">
                                     <div className="w-16 h-16 rounded-full bg-[#2b3139] border border-[#474d57] overflow-hidden"><img src={photoURL || "https://via.placeholder.com/150"} className="w-full h-full object-cover" /></div>
                                     <div className="flex-1 space-y-2"><label className="text-xs text-[#848e9c]">顯示名稱</label><div className="flex gap-2"><input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="flex-1 bg-[#2b3139] border border-[#474d57] rounded px-3 py-1.5 text-sm text-white outline-none"/><button onClick={handleUpdateProfile} className="bg-[#f0b90b] px-3 rounded text-black font-bold">更新</button></div></div>
@@ -137,9 +238,8 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                 <button onClick={handleSaveFees} className="w-full py-3 bg-[#f0b90b] text-black font-bold rounded shadow-lg">儲存費率設定</button>
                             </div>
                         ) : (
-                            /* 🛠️ 交易明細分頁內容 */
+                            /* 交易明細分頁內容 */
                             <div className="flex flex-col h-full space-y-4">
-                                {/* 子分頁導覽與匯出按鈕 */}
                                 <div className="flex items-center justify-between border-b border-[#2b3139] pb-3">
                                     <div className="flex gap-2">
                                         {["futures", "spot", "grid_futures", "grid_spot"].map(tab => {
@@ -148,7 +248,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                                 <button 
                                                     key={tab}
                                                     onClick={() => setTransSubTab(tab)}
-                                                    className={`px-3 py-1 text-xs rounded transition-colors ${transSubTab === tab ? "bg-[#f0b90b] text-black font-bold" : "bg-[#2b3139] text-[#848e9c] hover:text-[#eaecef]"}`}
+                                                    className={"px-3 py-1 text-xs rounded transition-colors " + (transSubTab === tab ? "bg-[#f0b90b] text-black font-bold" : "bg-[#2b3139] text-[#848e9c] hover:text-[#eaecef]")}
                                                 >
                                                     {labels[tab]}
                                                 </button>
@@ -156,14 +256,13 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                         })}
                                     </div>
                                     <button 
-                                        onClick={() => console.log(`匯出 ${transSubTab} 報表`)}
+                                        onClick={handleExport}
                                         className="flex items-center gap-1.5 px-3 py-1 bg-[#2b3139] border border-[#474d57] rounded text-xs text-[#848e9c] hover:text-[#f0b90b] transition-colors"
                                     >
-                                        <Download size={14} /> 匯出報表
+                                        <Download size={14} /> 匯出量化報表
                                     </button>
                                 </div>
 
-                                {/* 歷史紀錄表格 */}
                                 <div className="flex-1 overflow-auto">
                                     <table className="w-full text-left text-xs border-collapse">
                                         <thead className="sticky top-0 bg-[#161a1e] text-[#848e9c] z-10">
@@ -187,7 +286,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                                         <tr key={index} className="border-b border-[#2b3139] hover:bg-[#2b3139]/50 transition-colors">
                                                             <td className="py-3 px-2 font-mono text-[#848e9c]">{item.exitTime || item.time}</td>
                                                             <td className="py-3 px-2 font-bold">{item.symbol}</td>
-                                                            <td className={`py-3 px-2 ${isLong ? "text-[#089981]" : "text-[#F23645]"}`}>{sideText}</td>
+                                                            <td className={"py-3 px-2 " + (isLong ? "text-[#089981]" : "text-[#F23645]")}>{sideText}</td>
                                                             <td className="py-3 px-2 font-mono">{(item.entryPrice || item.price || 0).toFixed(2)}</td>
                                                             <td className="py-3 px-2 font-mono">{(item.size || 0).toFixed(4)}</td>
                                                         </tr>
