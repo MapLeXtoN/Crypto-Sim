@@ -9,7 +9,7 @@ import LoginView from "./components/LoginView";
 import Header from "./components/TOP/Header";
 import ChartContainer from "./components/chart/ChartContainer";
 import TransactionDetails from "./components/PositionManagement/PositionManagement";
-import TradingPanel from "./components/TradingPanel/TradingPanel";
+import TradingPanel from "./components/Tradingpanel/TradingPanel";
 import GridStrategyDetails from "./components/PositionManagement/GridStrategyDetails";
 import GridDetails from "./components/PositionManagement/Griddetails"; 
 import { useFuturesTradingLogic } from "./components/PositionManagement/FuturesTradingLogic";
