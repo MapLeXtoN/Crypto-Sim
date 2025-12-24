@@ -34,35 +34,74 @@ export const useFuturesTradingLogic = ({
     }, [currentPrice, orders, setOrders, setPositions, setHistory]);
 
     const calculateFuturesPnL = useCallback((pos, price) => {
-        if (!price || isNaN(price)) return 0;
-        return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * pos.size;
+        // 🔥 加強防呆
+        if (!price || isNaN(price) || !pos) return 0;
+        return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * (pos.size || 0);
     }, []);
 
+    // 🔥 [核心修正] 這裡是最嚴格的守門員
     const handleFuturesTrade = useCallback((tradeParams) => {
         const { side, amount, amountType, orderType, priceInput, leverage, futuresInputMode, takeProfit, stopLoss } = tradeParams;
-        const executionPrice = orderType === 'limit' ? parseFloat(priceInput) : currentPrice;
-        const val = parseFloat(amount);
+        
+        // 1. 價格檢查
+        if (!currentPrice) return alert("價格載入中，請稍後...");
+        let executionPrice = currentPrice;
+        
+        if (orderType === 'limit') {
+            const p = parseFloat(priceInput);
+            if (!p || isNaN(p) || p <= 0) return alert("請輸入有效的限價單價格！");
+            executionPrice = p;
+        }
 
-        const currentRate = orderType === 'limit' ? feeSettings.futuresMaker : feeSettings.futuresTaker;
+        // 2. 數量檢查
+        const val = parseFloat(amount);
+        if (!val || isNaN(val) || val <= 0) return alert("請輸入有效的下單數量/金額！");
+
+        const lev = parseFloat(leverage) || 1;
+        const makerRate = feeSettings?.futuresMaker ?? 0.02;
+        const takerRate = feeSettings?.futuresTaker ?? 0.05;
+        const currentRate = orderType === 'limit' ? makerRate : takerRate;
 
         let usdtValue, coinSize, margin;
-        if (amountType === 'coin') { coinSize = val; usdtValue = val * executionPrice; margin = usdtValue / leverage; }
-        else {
-            if (futuresInputMode === 'cost') { margin = val; usdtValue = margin * leverage; coinSize = usdtValue / executionPrice; }
-            else { usdtValue = val; margin = usdtValue / leverage; coinSize = usdtValue / executionPrice; }
+
+        // 3. 計算並檢查是否出現 NaN
+        if (amountType === 'coin') { 
+            coinSize = val; 
+            usdtValue = val * executionPrice; 
+            margin = usdtValue / lev; 
+        } else {
+            // 金額開單
+            if (futuresInputMode === 'cost') { 
+                margin = val; 
+                usdtValue = margin * lev; 
+                coinSize = usdtValue / executionPrice; 
+            } else { 
+                usdtValue = val; 
+                margin = usdtValue / lev; 
+                coinSize = usdtValue / executionPrice; 
+            }
+        }
+
+        // 🔥 如果算出來是 NaN，絕對不能放行！
+        if (isNaN(usdtValue) || isNaN(margin) || isNaN(coinSize) || !isFinite(coinSize)) {
+            console.error("Trade Error: Invalid Calc", { usdtValue, margin, coinSize });
+            return alert("數值計算錯誤，請檢查輸入參數！");
         }
 
         const entryFee = (usdtValue * currentRate) / 100;
-        if (margin + entryFee > balance) { alert(`資金不足支付保證金與手續費！`); return false; }
+        if (margin + entryFee > balance) return alert(`資金不足！(需: ${(margin+entryFee).toFixed(2)})`);
 
         const commonData = { exchange: selectedExchange, feeRate: currentRate, entryFee };
 
         if (orderType === 'limit') {
             const triggerCondition = executionPrice >= currentPrice ? 'gte' : 'lte';
-            setOrders(prev => [{ ...commonData, id: Date.now(), symbol, mode: 'futures', type: 'limit', side, price: executionPrice, amount: usdtValue, size: coinSize, leverage, margin, status: 'pending', time: new Date().toLocaleString(), tp: takeProfit || null, sl: stopLoss || null, triggerCondition }, ...prev]);
+            setOrders(prev => [{ ...commonData, id: Date.now(), symbol, mode: 'futures', type: 'limit', side, price: executionPrice, amount: usdtValue, size: coinSize, leverage: lev, margin, status: 'pending', time: new Date().toLocaleString(), tp: takeProfit || null, sl: stopLoss || null, triggerCondition }, ...prev]);
+            alert("限價單已掛出");
         } else {
-            setPositions(prev => [{ ...commonData, id: Date.now(), symbol, mode: 'futures', side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage, margin, tp: takeProfit || null, sl: stopLoss || null, time: new Date().toLocaleString() }, ...prev]);
+            setPositions(prev => [{ ...commonData, id: Date.now(), symbol, mode: 'futures', side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, leverage: lev, margin, tp: takeProfit || null, sl: stopLoss || null, time: new Date().toLocaleString() }, ...prev]);
+            alert("開倉成功");
         }
+        
         setBalance(p => p - (margin + entryFee));
         return true;
     }, [currentPrice, symbol, balance, feeSettings, selectedExchange, setOrders, setPositions, setBalance]);

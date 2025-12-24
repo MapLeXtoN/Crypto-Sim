@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { Save, User, DollarSign, Settings, Download, TrendingUp, RefreshCcw, Upload } from "lucide-react";
 import { updateProfile, updatePassword } from "firebase/auth";
 import { formatMoney } from "../../utils"; 
-import { INITIAL_BALANCE } from "../../constants"; // 確保獲取基準本金進行 ROI 計算
+import { INITIAL_BALANCE } from "../../constants"; 
 
 const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], equity, balance, positions = [], currentPrice, currentSymbol, feeSettings, setFeeSettings, selectedExchange, setSelectedExchange, heldCoins }) => {
     
@@ -17,18 +17,35 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
     // 費率設定暫存
     const [tempFees, setTempFees] = useState(feeSettings);
 
-    // 根據子分頁過濾歷史紀錄
+    // 🔥 修正部分：優化歷史紀錄篩選邏輯
+    // 解決問題：當資料儲存為 mode="grid" 但帶有 gridType 時，舊邏輯會篩選不到
     const filteredHistory = useMemo(() => {
-        const modeMap = {
-            "futures": "futures",
-            "spot": "spot",
-            "grid_futures": "grid_futures",
-            "grid_spot": "grid_spot"
-        };
-        return history.filter(item => item.mode === modeMap[transSubTab]);
+        if (!history || history.length === 0) return [];
+
+        return history.filter(item => {
+            // 確保 item.mode 存在，避免 crash
+            const itemMode = item.mode || "";
+            const itemGridType = item.gridType || "";
+
+            if (transSubTab === "futures") {
+                return itemMode === "futures";
+            }
+            if (transSubTab === "spot") {
+                return itemMode === "spot";
+            }
+            if (transSubTab === "grid_futures") {
+                // 允許 "grid_futures" 或者 "grid" 且類型為 "futures"
+                return itemMode === "grid_futures" || (itemMode === "grid" && itemGridType === "futures");
+            }
+            if (transSubTab === "grid_spot") {
+                // 允許 "grid_spot" 或者 "grid" 且類型為 "spot"
+                return itemMode === "grid_spot" || (itemMode === "grid" && itemGridType === "spot");
+            }
+            return false;
+        });
     }, [history, transSubTab]);
 
-    // 🛠️ 實作專業量化分析 CSV 匯出邏輯 (已中文化並移除交易編號)
+    // 🛠️ 實作專業量化分析 CSV 匯出邏輯 (維持原樣)
     const handleExport = () => {
         const labels = { futures: "合約", spot: "現貨", grid_futures: "合約網格", grid_spot: "現貨網格" };
         const currentLabel = labels[transSubTab];
@@ -40,26 +57,16 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
 
         alert("正在執行量化分析並匯出 [" + currentLabel + "] 報表...");
 
-        // 🛠️ 2️⃣ 專業化標題欄位 (移除 ID，改為全中文)
         const headers = [
-            "平倉時間", 
-            "交易幣種", 
-            "方向", 
-            "成交均價", 
-            "成交數量", 
-            "手續費 (USDT)", 
-            "已實現盈虧 (USDT)", 
-            "單筆投報率 (%)", 
-            "交易效率 (盈虧/手續費)"
+            "平倉時間", "交易幣種", "方向", "成交均價", "成交數量", 
+            "手續費 (USDT)", "已實現盈虧 (USDT)", "單筆投報率 (%)", "交易效率 (盈虧/手續費)"
         ];
         
         let totalVolume = 0;
         let totalFee = 0;
         let totalPnL = 0;
 
-        // 轉換資料並計算量化指標
         const rows = filteredHistory.map(item => {
-            // 方向中文化
             const sideText = transSubTab.includes("futures") 
                 ? (item.side === "long" ? "做多 (LONG)" : "做空 (SHORT)") 
                 : (item.side === "long" || item.side === "buy" ? "買入 (BUY)" : "賣出 (SELL)");
@@ -67,73 +74,38 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
             const price = parseFloat(item.entryPrice || item.price || 0);
             const size = parseFloat(item.size || 0);
             const amount = parseFloat(item.amount || (price * size));
-            
-            // 手續費計算
             const fee = parseFloat(item.entryFee || (amount * (item.feeRate || 0) / 100) || 0);
-            
-            // 盈虧與 ROI
             const pnl = parseFloat(item.pnl || 0);
             const roi = amount > 0 ? (pnl / amount) * 100 : 0;
-
-            // 交易效率 (Efficiency)
             const efficiency = fee > 0 ? (pnl / fee).toFixed(2) : "-";
 
-            // 累加總計
             totalVolume += amount;
             totalFee += fee;
             totalPnL += pnl;
 
-            // 回傳資料列 (注意順序要跟 headers 一樣，並移除了 ID)
             return [
-                item.exitTime || item.time,  // 平倉時間
-                item.symbol,                 // 交易幣種
-                sideText,                    // 方向
-                price.toFixed(2),            // 成交均價
-                size.toFixed(4),             // 成交數量
-                fee.toFixed(4),              // 手續費
-                pnl.toFixed(2),              // 已實現盈虧
-                roi.toFixed(2) + "%",        // 單筆投報率
-                efficiency                   // 交易效率
+                item.exitTime || item.time,
+                item.symbol,
+                sideText,
+                price.toFixed(2),
+                size.toFixed(4),
+                fee.toFixed(4),
+                pnl.toFixed(2),
+                roi.toFixed(2) + "%",
+                efficiency
             ];
         });
 
-        // 數據總結列 (Summary) - 調整為對齊上方欄位
-        // 欄位索引: 0:時間, 1:幣種, 2:方向, 3:價格, 4:數量, 5:手續費, 6:盈虧, 7:ROI, 8:效率
-        const summaryRow = [
-            "總結 (SUMMARY)",
-            "-",
-            "-",
-            "-",
-            totalVolume.toFixed(2),      // 對齊「成交數量」
-            totalFee.toFixed(4),         // 對齊「手續費」
-            totalPnL.toFixed(2),         // 對齊「已實現盈虧」
-            "-",
-            "-"
-        ];
-
-        // 帳戶整體績效列 (Portfolio Performance)
+        const summaryRow = ["總結 (SUMMARY)", "-", "-", "-", totalVolume.toFixed(2), totalFee.toFixed(4), totalPnL.toFixed(2), "-", "-"];
         const portfolioRoi = (totalPnL / INITIAL_BALANCE) * 100;
-        const portfolioRow = [
-            "帳戶整體績效",
-            "-",
-            "-",
-            "初始本金: " + INITIAL_BALANCE,
-            "總淨利: " + totalPnL.toFixed(2),
-            "總報酬率: " + portfolioRoi.toFixed(2) + "%",
-            "-",
-            "-",
-            "-"
-        ];
+        const portfolioRow = ["帳戶整體績效", "-", "-", "初始本金: " + INITIAL_BALANCE, "總淨利: " + totalPnL.toFixed(2), "總報酬率: " + portfolioRoi.toFixed(2) + "%", "-", "-", "-"];
 
-        // 組合內容 (使用 \uFEFF 解決 Excel 中文亂碼)
         const csvContent = "\uFEFF" + [headers, ...rows, [], summaryRow, portfolioRow].map(e => e.join(",")).join("\n");
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         
-        // 下載動作
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        // 下載檔名改為中文
         link.setAttribute("download", "量化分析報表_" + currentLabel + ".csv");
         link.style.visibility = "hidden";
         document.body.appendChild(link);

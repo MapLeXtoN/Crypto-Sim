@@ -4,13 +4,12 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { INITIAL_BALANCE } from "./constants";
-// import { generateMockData } from "./utils"; // 暫時沒用到
 
 import LoginView from "./components/LoginView";
 import Header from "./components/TOP/Header";
 import ChartContainer from "./components/chart/ChartContainer";
 import TransactionDetails from "./components/PositionManagement/PositionManagement";
-import TradingPanel from "./components/Tradingpanel/TradingPanel";
+import TradingPanel from "./components/TradingPanel/TradingPanel";
 import GridStrategyDetails from "./components/PositionManagement/GridStrategyDetails";
 import GridDetails from "./components/PositionManagement/Griddetails"; 
 import { useFuturesTradingLogic } from "./components/PositionManagement/FuturesTradingLogic";
@@ -98,6 +97,10 @@ export default function App() {
     avgPrice: item.totalAmount / item.totalSize
   }));
 
+  // 🔥 [新增] 取得當前選擇幣種的持有量 (例如選擇 BTCUSDT 時，抓取 BTC 持倉)
+  const currentCoinSymbol = symbol.replace("USDT", "");
+  const currentHolding = heldCoins.find(c => c.symbol === currentCoinSymbol)?.quantity || 0;
+
   const [panelWidth, setPanelWidth] = useState(320);
   const panelRef = useRef(null);
   const isResizing = useRef(false);
@@ -151,7 +154,8 @@ export default function App() {
                 const docSnap = await getDoc(doc(db, "users", user.uid));
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    setBalance(data.balance || INITIAL_BALANCE);
+                    // 🔥 [修正] 載入資料時確保 balance 不是 NaN
+                    setBalance(isNaN(data.balance) ? INITIAL_BALANCE : (data.balance || INITIAL_BALANCE));
                     setPositions((data.positions || []).filter(p => p && p.id));
                     setOrders(data.orders || []);
                     setHistory((data.history || []).slice(0, 100));
@@ -169,8 +173,10 @@ export default function App() {
     if (user && !authLoading) {
         const timer = setTimeout(async () => {
             try {
+                // 🔥 [修正] 儲存前再次檢查，防止寫入 NaN
+                const safeBalance = isNaN(balance) ? INITIAL_BALANCE : balance;
                 await updateDoc(doc(db, "users", user.uid), { 
-                    balance, positions, orders, history: history.slice(0, 100), favorites, feeSettings, selectedExchange
+                    balance: safeBalance, positions, orders, history: history.slice(0, 100), favorites, feeSettings, selectedExchange
                 });
             } catch (err) {}
         }, 2000); 
@@ -233,7 +239,7 @@ export default function App() {
   }, [currentPrice, orders]);
 
   // =================================================================
-  // 🔥 [修正] 網格策略撮合引擎 (Grid Matching Engine)
+  // 網格策略撮合引擎
   // =================================================================
   useEffect(() => {
     if (!currentPrice || positions.length === 0) return;
@@ -246,7 +252,8 @@ export default function App() {
     }
 
     let hasUpdates = false;
-    
+    const newHistoryRecords = [];
+
     const updatedPositions = positions.map(pos => {
         if (pos.mode !== 'grid_spot' && pos.mode !== 'grid_futures') return pos;
 
@@ -257,10 +264,6 @@ export default function App() {
         if (currentPrice < lower || currentPrice > upper) return pos;
 
         const step = (upper - lower) / levels;
-        
-        // 🔥 [修正] 利潤計算邏輯：改為 (每格幣數 x 網格間距)
-        // 這樣利潤才會是恆定的，不會因為現價變動而忽大忽小
-        // 如果是舊的單沒有 unitPerGrid，使用後備算法
         const unitSize = pos.unitPerGrid || (pos.size / levels); 
         const profitPerOneMatch = unitSize * step; 
 
@@ -278,10 +281,31 @@ export default function App() {
 
         if (crossedLines > 0) {
             hasUpdates = true;
+            const matchProfit = profitPerOneMatch * crossedLines;
+            
+            newHistoryRecords.push({
+                id: Date.now() + Math.random(),
+                time: new Date().toLocaleString(),
+                exitTime: new Date().toLocaleString(),
+                symbol: pos.symbol,
+                mode: pos.mode,       
+                gridType: pos.gridType,
+                side: pos.gridDirection === 'long' ? 'long' : 'short',
+                type: 'grid_match',   
+                entryPrice: currentPrice - step, 
+                price: currentPrice,             
+                size: unitSize * crossedLines,
+                amount: (unitSize * crossedLines) * currentPrice,
+                pnl: matchProfit,    
+                feeRate: 0,
+                entryFee: 0,
+                status: 'filled'
+            });
+
             return {
                 ...pos,
                 matchedCount: (pos.matchedCount || 0) + crossedLines,
-                realizedProfit: (pos.realizedProfit || 0) + (profitPerOneMatch * crossedLines)
+                realizedProfit: (pos.realizedProfit || 0) + matchProfit
             };
         }
 
@@ -290,11 +314,11 @@ export default function App() {
 
     if (hasUpdates) {
         setPositions(updatedPositions);
+        setHistory(prev => [...newHistoryRecords, ...prev]);
     }
 
     lastPriceRef.current = currentPrice;
   }, [currentPrice, positions]);
-  // =================================================================
 
   useEffect(() => {
     let isMounted = true;
@@ -317,10 +341,14 @@ export default function App() {
     return () => { isMounted = false; clearInterval(timer); controller.abort(); };
   }, [symbol, timeframe]);
 
+  // =================================================================
+  // 🔥 [核心修正] 交易處理邏輯 (Handle Trade)
+  // =================================================================
   const handleTrade = (advancedParams = {}) => {
     if (!currentPrice) return alert("價格載入中...");
     const { takeProfit, stopLoss } = advancedParams;
     
+    // --- 網格交易 ---
     if (tradeMode === "grid") {
         const lower = parseFloat(gridLowerPrice);
         const upper = parseFloat(gridUpperPrice);
@@ -336,8 +364,6 @@ export default function App() {
             ? inv / currentPrice 
             : (inv * leverage) / currentPrice;
         
-        // 🔥 [修正] 計算並儲存每格的幣數 (unitPerGrid) 和金額 (pricePerGrid)
-        // 這是為了解決你說的「看不到網格掛單金額」以及「利潤計算錯誤」的問題
         const unitPerGrid = calculatedSize / levels;
         const pricePerGrid = inv / levels;
 
@@ -352,14 +378,16 @@ export default function App() {
             gridUpper: upper,
             gridLevels: levels,
             amount: inv,
+            // 🔥 [修正] 必須加上 margin 欄位，否則平倉時餘額計算會出現 NaN，導致總資產歸零
+            margin: inv, 
             size: calculatedSize,
-            unitPerGrid: unitPerGrid, // 🔥 存入每格幣數 (Quant運算用)
-            pricePerGrid: pricePerGrid, // 🔥 存入每格USDT (顯示用)
+            unitPerGrid: unitPerGrid, 
+            pricePerGrid: pricePerGrid, 
             leverage: gridType === "futures" ? leverage : 1,
             matchedCount: 0,
             realizedProfit: 0,
             status: "running",
-            time: new Date().toLocaleString(), // 這裡已經是正確的格式
+            time: new Date().toLocaleString(),
             exchange: selectedExchange,
             gridLines: []
         };
@@ -371,56 +399,201 @@ export default function App() {
         return;
     }
     
+    // --- 合約交易 ---
     if (tradeMode === "futures") {
         const success = handleFuturesTrade({ side, amount, amountType, orderType, priceInput, leverage, futuresInputMode, takeProfit, stopLoss });
         if (success) setAmount("");
         return;
     }
 
-    const executionPrice = orderType === "limit" ? parseFloat(priceInput) : currentPrice;
+    // --- 現貨交易 (Spot) ---
+    // 🔥 [修正 1] 確保限價單有輸入有效的價格，避免 NaN 導致帳戶歸零
+    let executionPrice = currentPrice;
+    if (orderType === "limit") {
+        executionPrice = parseFloat(priceInput);
+        if (!executionPrice || isNaN(executionPrice) || executionPrice <= 0) {
+            return alert("請輸入有效的限價單價格！");
+        }
+    }
+
     const val = parseFloat(amount);
     if (!val || val <= 0) return alert("數量無效");
 
     const currentRate = orderType === "limit" ? feeSettings.spotMaker : feeSettings.spotTaker;
-    let usdtValue = amountType === "usdt" ? val : val * executionPrice;
-    let coinSize = amountType === "usdt" ? val / executionPrice : val;
-    const entryFee = (usdtValue * currentRate) / 100;
-
-    if (usdtValue + entryFee > balance) return alert("資金不足支付手續費！");
-
     const commonData = { exchange: selectedExchange, feeRate: currentRate };
 
-    if (orderType === "limit") {
-        setOrders(prev => [{ ...commonData, id: Date.now(), symbol, mode: "spot", type: "limit", side, price: executionPrice, amount: usdtValue, size: coinSize, status: "pending", time: new Date().toLocaleString(), triggerCondition: executionPrice >= currentPrice ? "gte" : "lte", entryFee }, ...prev]);
-    } else {
-        setPositions(prev => [{ ...commonData, id: Date.now(), symbol, mode: "spot", side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, margin: usdtValue, time: new Date().toLocaleString(), entryFee }, ...prev]);
+    // =======================================
+    // 🔥 現貨買入 (Long / Buy)
+    // =======================================
+    if (side === "long") {
+        let usdtValue = amountType === "usdt" ? val : val * executionPrice;
+        let coinSize = amountType === "usdt" ? val / executionPrice : val;
+        const entryFee = (usdtValue * currentRate) / 100;
+
+        // 🔥 [修正 2] 增加檢查避免金額計算錯誤
+        if (isNaN(usdtValue) || isNaN(entryFee)) {
+            return alert("金額計算錯誤，請檢查輸入數值");
+        }
+
+        if (usdtValue + entryFee > balance) return alert("資金不足支付手續費！");
+
+        if (orderType === "limit") {
+            setOrders(prev => [{ ...commonData, id: Date.now(), symbol, mode: "spot", type: "limit", side, price: executionPrice, amount: usdtValue, size: coinSize, status: "pending", time: new Date().toLocaleString(), triggerCondition: executionPrice >= currentPrice ? "gte" : "lte", entryFee }, ...prev]);
+        } else {
+            const newSpotPos = { ...commonData, id: Date.now(), symbol, mode: "spot", side, entryPrice: executionPrice, amount: usdtValue, size: coinSize, margin: usdtValue, time: new Date().toLocaleString(), entryFee };
+            
+            setPositions(prev => [newSpotPos, ...prev]);
+            
+            setHistory(prev => [{
+                ...newSpotPos, 
+                status: "filled", 
+                exitTime: new Date().toLocaleString(), 
+                type: "market_filled", 
+                pnl: 0 
+            }, ...prev]);
+        }
+        
+        setBalance(p => p - (usdtValue + entryFee)); 
+        setAmount("");
+        alert("買入成功");
     }
-    
-    setBalance(p => p - (usdtValue + entryFee)); 
-    setAmount("");
-    if (side === "long") alert("買入成功");
+    // =======================================
+    // 🔥 現貨賣出 (Short / Sell)
+    // =======================================
+    else if (side === "short") {
+        let sellSize = amountType === "coin" ? val : (val / executionPrice);
+        
+        // 1. 檢查持倉數量
+        const heldPositions = positions.filter(p => p.mode === "spot" && p.symbol === symbol).sort((a, b) => a.id - b.id);
+        const totalHeld = heldPositions.reduce((sum, p) => sum + p.size, 0);
+
+        if (totalHeld < sellSize) {
+            const coinName = symbol.replace("USDT", "");
+            return alert(`持倉不足！您的 ${coinName} 餘額為: ${totalHeld.toFixed(4)}, 欲賣出: ${sellSize.toFixed(4)}`);
+        }
+
+        // 2. 限價賣單
+        if (orderType === "limit") {
+             const usdtValue = sellSize * executionPrice;
+             // 🔥 [修正 3] 確保賣單金額有效
+             if (isNaN(usdtValue)) return alert("金額計算錯誤");
+
+             setOrders(prev => [{ ...commonData, id: Date.now(), symbol, mode: "spot", type: "limit", side: 'short', price: executionPrice, amount: usdtValue, size: sellSize, status: "pending", time: new Date().toLocaleString(), triggerCondition: executionPrice <= currentPrice ? "lte" : "gte" }, ...prev]);
+             alert("限價賣單已掛出");
+             setAmount("");
+             return;
+        }
+
+        // 3. 市價賣出 (FIFO 扣除持倉並獲得 USDT)
+        let remainingToSell = sellSize;
+        let totalGetUSDT = 0;
+        let newPositions = [...positions];
+        let newHistory = [];
+
+        for (let pos of heldPositions) {
+            if (remainingToSell <= 0) break;
+            
+            const tradeSize = Math.min(pos.size, remainingToSell);
+            const tradeVal = tradeSize * executionPrice;
+            const tradeFee = tradeVal * currentRate / 100;
+            const pnl = (executionPrice - pos.entryPrice) * tradeSize;
+
+            totalGetUSDT += (tradeVal - tradeFee);
+
+            newHistory.push({
+                 ...pos,
+                 id: Date.now() + Math.random(),
+                 type: 'spot_sell',
+                 status: 'filled',
+                 exitTime: new Date().toLocaleString(),
+                 price: executionPrice,
+                 size: tradeSize,
+                 amount: tradeVal,
+                 pnl: pnl - tradeFee, 
+                 fee: tradeFee,
+                 side: 'sell' 
+            });
+
+            if (Math.abs(pos.size - tradeSize) < 0.000001) {
+                newPositions = newPositions.filter(p => p.id !== pos.id);
+            } else {
+                newPositions = newPositions.map(p => p.id === pos.id ? {
+                    ...p, 
+                    size: p.size - tradeSize, 
+                    amount: (p.size - tradeSize) * p.entryPrice 
+                } : p);
+            }
+
+            remainingToSell -= tradeSize;
+        }
+
+        setPositions(newPositions);
+        setBalance(prev => prev + totalGetUSDT); 
+        setHistory(prev => [...newHistory, ...prev]);
+        setAmount("");
+        alert(`賣出成功，獲得 ${totalGetUSDT.toFixed(2)} USDT`);
+    }
   };
 
   const closePosition = (id) => {
     const pos = positions.find(p => p.id === id); if (!pos) return;
-    if (pos.mode === "futures" || pos.mode === "grid_futures") { 
-        if (pos.mode === "grid_futures") {
-            setPositions(p => p.filter(x => x.id !== id));
-            setBalance(p => p + pos.amount + (pos.realizedProfit || 0)); // 🔥 平倉時返還本金+網格利潤
-            return;
-        }
+
+    if (pos.mode === "futures") { 
         closeFuturesPosition(pos); 
         return; 
     }
+
+    if (pos.mode === "grid_spot" || pos.mode === "grid_futures") {
+        const isFutures = pos.mode === "grid_futures";
+        
+        let trendPnl = 0;
+        if (isFutures) {
+            trendPnl = calculateFuturesPnL(pos, currentPrice);
+        } else {
+            trendPnl = (currentPrice - pos.entryPrice) * pos.size;
+        }
+
+        const totalPnl = (pos.realizedProfit || 0) + trendPnl;
+        
+        // 🔥 [保護] 使用 || 0 防止 margin 是 undefined 造成 NaN
+        const safeMargin = pos.margin || pos.amount || 0;
+
+        if (isFutures) {
+            setBalance(p => p + safeMargin + totalPnl);
+        } else {
+            const sellValue = pos.size * currentPrice;
+            setBalance(p => p + sellValue + (pos.realizedProfit || 0)); 
+        }
+
+        setHistory(prev => [{
+            ...pos,
+            closePrice: currentPrice,
+            pnl: totalPnl, 
+            realizedGridProfit: pos.realizedProfit, 
+            exitTime: new Date().toLocaleString(),
+            type: "grid_stopped",
+            status: "closed"
+        }, ...prev]);
+
+        setPositions(p => p.filter(x => x.id !== id));
+        return;
+    }
     
+    // 一般現貨平倉
     const exitFee = (pos.size * currentPrice * (pos.feeRate || 0.1)) / 100;
-    const pnl = (currentPrice - pos.entryPrice) * pos.size;
+    const sellValue = pos.size * currentPrice;
+    const pnl = sellValue - pos.amount; 
     
-    setBalance(p => p + pos.margin + pnl - exitFee);
+    setBalance(p => p + sellValue - exitFee);
     
-    // 🔥 [修正] 使用 toLocaleString() 包含日期
-    // 這樣交易紀錄報表才不會只有時間
-    setHistory(prev => [{ ...pos, closePrice: currentPrice, pnl: pnl - (pos.entryFee || 0) - exitFee, exitTime: new Date().toLocaleString(), type: "position" }, ...prev]);
+    setHistory(prev => [{ 
+        ...pos, 
+        closePrice: currentPrice, 
+        pnl: pnl - (pos.entryFee || 0) - exitFee, 
+        exitTime: new Date().toLocaleString(), 
+        type: "position_closed" 
+    }, ...prev]);
+
     setPositions(p => p.filter(x => x.id !== id));
   };
 
@@ -430,12 +603,22 @@ export default function App() {
     setOrders(p => p.filter(x => x.id !== id));
   };
 
+  // 🔥 [修正] 加強版 PnL 計算，防止 NaN 導致畫面壞掉
   const calculatePnL = (pos, price) => {
-    if (pos.mode === "futures" || pos.mode === "grid_futures") return calculateFuturesPnL(pos, price);
-    return (price - pos.entryPrice) * (pos.size || 0);
+    const safePrice = parseFloat(price) || 0;
+    if (pos.mode === "futures" || pos.mode === "grid_futures") return calculateFuturesPnL(pos, safePrice) || 0;
+    // 現貨防呆
+    const entry = parseFloat(pos.entryPrice) || 0;
+    const size = parseFloat(pos.size) || 0;
+    return (safePrice - entry) * size;
   };
 
-  const equity = balance + positions.reduce((acc, pos) => acc + (pos.margin || 0) + calculatePnL(pos, currentPrice), 0);
+  // 🔥 [修正] 總權益計算防呆：如果 margin 缺失，嘗試使用 amount，並確保所有數值都不是 NaN
+  const equity = balance + positions.reduce((acc, pos) => {
+      const margin = parseFloat(pos.margin) || parseFloat(pos.amount) || 0;
+      const pnl = parseFloat(calculatePnL(pos, currentPrice)) || 0;
+      return acc + margin + pnl;
+  }, 0);
 
   if (authLoading) return <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center text-white font-bold">同步中...</div>;
   if (!user) return <LoginView onLoginSuccess={setUser} />;
@@ -447,7 +630,47 @@ export default function App() {
         <ChartContainer symbol={symbol} timeframe={timeframe} setTimeframe={setTimeframe} klineData={klineData} currentPrice={currentPrice} loading={loading} apiError={apiError} showTimeMenu={showTimeMenu} setShowTimeMenu={setShowTimeMenu} favorites={favorites} toggleFavorite={toggleFavorite} activeGrid={activeGrid} />
         <div className="w-1 bg-[#2b3139] hover:bg-[#f0b90b] cursor-col-resize z-50 transition-colors" onMouseDown={startResizing}></div>
         <div ref={panelRef} style={{ width: `${panelWidth}px`, flexShrink: 0 }}>
-            <TradingPanel tradeMode={tradeMode} setTradeMode={setTradeMode} symbol={symbol} setSymbol={setSymbol} side={side} setSide={setSide} orderType={orderType} setOrderType={setOrderType} priceInput={priceInput} setPriceInput={setPriceInput} currentPrice={currentPrice} amount={amount} setAmount={setAmount} amountType={amountType} setAmountType={setAmountType} leverage={leverage} setLeverage={setLeverage} balance={balance} handleTrade={handleTrade} futuresInputMode={futuresInputMode} setFuturesInputMode={setFuturesInputMode} gridType={gridType} setGridType={setGridType} gridLevels={gridLevels} setGridLevels={setGridLevels} gridDirection={gridDirection} setGridDirection={setGridDirection} gridLowerPrice={gridLowerPrice} setGridLowerPrice={setGridLowerPrice} gridUpperPrice={gridUpperPrice} setGridUpperPrice={setGridUpperPrice} reserveMargin={reserveMargin} setReserveMargin={setReserveMargin} feeSettings={feeSettings} selectedExchange={selectedExchange} />
+            <TradingPanel 
+                tradeMode={tradeMode} 
+                setTradeMode={setTradeMode} 
+                symbol={symbol} 
+                setSymbol={setSymbol} 
+                side={side} 
+                setSide={setSide} 
+                orderType={orderType} 
+                setOrderType={setOrderType} 
+                priceInput={priceInput} 
+                setPriceInput={setPriceInput} 
+                currentPrice={currentPrice} 
+                amount={amount} 
+                setAmount={setAmount} 
+                amountType={amountType} 
+                setAmountType={setAmountType} 
+                leverage={leverage} 
+                setLeverage={setLeverage} 
+                balance={balance} 
+                
+                // 🔥 [修改] 傳遞持有數量給 TradingPanel
+                availableCoinBalance={currentHolding}
+
+                handleTrade={handleTrade} 
+                futuresInputMode={futuresInputMode} 
+                setFuturesInputMode={setFuturesInputMode} 
+                gridType={gridType} 
+                setGridType={setGridType} 
+                gridLevels={gridLevels} 
+                setGridLevels={setGridLevels} 
+                gridDirection={gridDirection} 
+                setGridDirection={setGridDirection} 
+                gridLowerPrice={gridLowerPrice} 
+                setGridLowerPrice={setGridLowerPrice} 
+                gridUpperPrice={gridUpperPrice} 
+                setGridUpperPrice={setGridUpperPrice} 
+                reserveMargin={reserveMargin} 
+                setReserveMargin={setReserveMargin} 
+                feeSettings={feeSettings} 
+                selectedExchange={selectedExchange} 
+            />
         </div>
       </div>
       

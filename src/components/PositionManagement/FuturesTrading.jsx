@@ -1,9 +1,14 @@
 // src/components/TradingPanel/FuturesTrading.jsx
 import React, { useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
 const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, calculatePnL, symbol }) => {
     const [confirmingId, setConfirmingId] = useState(null); 
+
+    const safeNum = (val) => {
+        const num = parseFloat(val);
+        return isNaN(num) ? 0 : num;
+    };
 
     const renderPositionsTable = (positions) => (
         <div className="overflow-x-auto">
@@ -11,6 +16,8 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                 <thead className="bg-[#2b3139] text-[#848e9c]">
                     <tr>
                         <th className="pl-4 py-2">合約</th>
+                        {/* 🔥 [新增] 方向標題 */}
+                        <th>方向</th>
                         <th>投資額</th>
                         <th>開倉價格 (Open Price)</th>
                         <th>盈虧</th>
@@ -22,16 +29,23 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                 <tbody>
                     {positions.filter(p => p.mode === 'futures').map(pos => {
                         const isCurrent = pos.symbol === symbol;
-                        const pnl = isCurrent ? calculatePnL(pos, currentPrice) : 0;
+                        const pnl = isCurrent ? (calculatePnL(pos, currentPrice) || 0) : 0;
+                        
                         return (
                             <tr key={pos.id} className={`border-b border-[#2b3139] ${!isCurrent ? 'opacity-50' : ''}`}>
-                                <td className="pl-4 py-2 font-bold">{pos.symbol} <span className="text-[#848e9c] ml-1">{pos.leverage.toFixed(1)}x</span></td>
-                                <td className="font-mono">{pos.amount.toFixed(2)}</td>
-                                {/* 新增：開倉價格欄位 */}
-                                <td className="font-mono text-[#f0b90b]">{pos.entryPrice.toFixed(2)}</td>
+                                <td className="pl-4 py-2 font-bold">
+                                    {pos.symbol} 
+                                    <span className="text-[#848e9c] ml-1">{safeNum(pos.leverage).toFixed(1)}x</span>
+                                </td>
+                                {/* 🔥 [新增] 顯示做多/做空 */}
+                                <td className={`font-bold ${pos.side === 'long' ? 'text-[#089981]' : 'text-[#F23645]'}`}>
+                                    {pos.side === 'long' ? '做多' : '做空'}
+                                </td>
+                                <td className="font-mono">{safeNum(pos.amount).toFixed(2)}</td>
+                                <td className="font-mono text-[#f0b90b]">{safeNum(pos.entryPrice).toFixed(2)}</td>
                                 <td className={pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>{pnl.toFixed(2)}</td>
-                                <td className="text-[#848e9c]">{pos.exchange || 'Binance'} ({pos.feeRate || 0.05}%)</td>
-                                <td className="text-[#848e9c]">{pos.entryFee?.toFixed(2) || '0.00'} USDT</td>
+                                <td className="text-[#848e9c]">{pos.exchange || 'Binance'} ({safeNum(pos.feeRate || 0.05)}%)</td>
+                                <td className="text-[#848e9c]">{safeNum(pos.entryFee).toFixed(2)} USDT</td>
                                 <td className="pr-4 text-right">
                                     <button onClick={() => closePosition(pos.id)} className="text-[#F23645] text-[10px] border border-[#474d57] px-2 py-1 rounded bg-[#2b3139] hover:bg-[#cf2d3a] hover:text-white transition-all">平倉</button>
                                 </td>
@@ -39,7 +53,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                         );
                     })}
                     {positions.filter(p => p.mode === 'futures').length === 0 && (
-                        <tr><td colSpan="7" className="text-center py-8 text-gray-500">無合約持倉</td></tr>
+                        <tr><td colSpan="8" className="text-center py-8 text-gray-500">無合約持倉</td></tr>
                     )}
                 </tbody>
             </table>
@@ -52,7 +66,8 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                 <thead className="bg-[#2b3139] text-[#848e9c]">
                     <tr>
                         <th className="pl-4 py-2">幣種</th>
-                        {/* 修正：統一標示為掛單價格 */}
+                        {/* 🔥 [新增] 方向標題 */}
+                        <th>方向</th>
                         <th>掛單價格 (Order Price)</th>
                         <th>預扣手續費</th>
                         <th>交易所/費率</th>
@@ -63,8 +78,12 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                     {orders.filter(o => o.mode === 'futures').map(order => (
                         <tr key={order.id} className="border-b border-[#2b3139]">
                             <td className="pl-4 py-2 font-bold">{order.symbol}</td>
-                            <td className="font-mono text-[#f0b90b]">{order.price.toFixed(2)}</td>
-                            <td className="text-[#848e9c]">{order.entryFee?.toFixed(2)} USDT</td>
+                            {/* 🔥 [新增] 顯示做多/做空 */}
+                            <td className={`font-bold ${order.side === 'long' ? 'text-[#089981]' : 'text-[#F23645]'}`}>
+                                {order.side === 'long' ? '做多' : '做空'}
+                            </td>
+                            <td className="font-mono text-[#f0b90b]">{safeNum(order.price).toFixed(2)}</td>
+                            <td className="text-[#848e9c]">{safeNum(order.entryFee).toFixed(2)} USDT</td>
                             <td className="text-[#848e9c]">{order.exchange} ({order.feeRate}%)</td>
                             <td className="pr-4 py-2 text-right">
                                 <button onClick={() => setConfirmingId(order.id)} className="text-[#F23645] text-[10px] border border-[#474d57] px-2 py-1 rounded bg-[#2b3139] transition-colors">取消</button>
@@ -72,7 +91,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                         </tr>
                     ))}
                     {orders.filter(o => o.mode === 'futures').length === 0 && (
-                        <tr><td colSpan="5" className="text-center py-8 text-gray-500">無合約掛單</td></tr>
+                        <tr><td colSpan="6" className="text-center py-8 text-gray-500">無合約掛單</td></tr>
                     )}
                 </tbody>
             </table>
@@ -82,7 +101,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
     const renderHistoryTable = (history) => (
         <table className="w-full text-left text-xs text-[#eaecef]">
             <thead className="bg-[#2b3139] text-[#848e9c]"><tr><th className="pl-4 py-1.5">合約</th><th>盈虧(扣除來回費)</th><th>交易所/費率</th><th>時間</th></tr></thead>
-            <tbody>{history.filter(h => h.mode === 'futures').map((item, i) => <tr key={i} className="border-b border-[#2b3139] opacity-60"><td className="pl-4 py-2">{item.symbol}</td><td className={item.pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>{item.pnl?.toFixed(2)} USDT</td><td className="text-[#848e9c]">{item.exchange} ({item.feeRate}%)</td><td>{item.exitTime}</td></tr>)}</tbody>
+            <tbody>{history.filter(h => h.mode === 'futures').map((item, i) => <tr key={i} className="border-b border-[#2b3139] opacity-60"><td className="pl-4 py-2">{item.symbol}</td><td className={item.pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>{safeNum(item.pnl).toFixed(2)} USDT</td><td className="text-[#848e9c]">{item.exchange} ({item.feeRate}%)</td><td>{item.exitTime}</td></tr>)}</tbody>
         </table>
     );
 

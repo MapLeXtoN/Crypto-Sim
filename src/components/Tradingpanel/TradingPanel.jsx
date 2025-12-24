@@ -12,13 +12,14 @@ const TradingPanel = ({
     amountType, setAmountType,
     leverage, setLeverage,
     balance,
+    
+    // 🔥 [新增] 接收 App.jsx 傳來的持有數量
+    availableCoinBalance, 
+
     handleTrade,
     currentPrice,
-    // 合約開單模式控制參數
     futuresInputMode, setFuturesInputMode,
-    // 接收手續費與交易所設定
     feeSettings, selectedExchange,
-    // Grid specific props
     gridType, setGridType,
     gridLevels, setGridLevels,
     gridDirection, setGridDirection,
@@ -61,22 +62,35 @@ const TradingPanel = ({
         }
     }, [gridLowerPrice, gridUpperPrice, gridLevels, gridSpacingType]);
 
-    // 2. 預估強平價
+    // =================================================================
+    // 🔥 [修正] 預估強平價邏輯
+    // =================================================================
     const estimatedLiqPrice = useMemo(() => {
-        if (gridType === "spot" || !currentPrice || !leverage) return "--";
+        // 判斷是否需要計算強平價：
+        // 1. 一般合約模式 (tradeMode === "futures") -> 必須計算
+        // 2. 網格模式且選擇合約網格 (tradeMode === "grid" && gridType === "futures") -> 必須計算
+        const shouldCalculate = tradeMode === "futures" || (tradeMode === "grid" && gridType === "futures");
+
+        if (!shouldCalculate || !currentPrice || !leverage) return "--";
+        
         const entry = currentPrice;
         const lev = parseFloat(leverage);
         const maintMargin = 0.005;
         
-        if (gridDirection === "long") {
+        // 決定方向：
+        // 如果是 'futures' 模式，使用 side (long/short)
+        // 如果是 'grid' 模式，使用 gridDirection
+        const direction = tradeMode === "futures" ? side : gridDirection;
+
+        if (direction === "long") {
             const liq = entry * (1 - (1 / lev) + maintMargin);
             return liq > 0 ? liq.toFixed(2) : "0.00";
-        } else if (gridDirection === "short") {
+        } else if (direction === "short") {
             const liq = entry * (1 + (1 / lev) - maintMargin);
             return liq.toFixed(2);
         }
         return "--";
-    }, [currentPrice, leverage, gridDirection, gridType]);
+    }, [currentPrice, leverage, gridDirection, gridType, tradeMode, side]); // 🔥 加入 tradeMode 和 side 依賴
 
     // 3. 計算 實際投資 與 額外保證金
     const investmentSplit = useMemo(() => {
@@ -286,9 +300,8 @@ const TradingPanel = ({
                                 <div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount ? (parseFloat(amount) * leverage).toFixed(2) : "0"} USDT</span></div>
                                 <div className="flex justify-between">
                                     <span>預估強平價:</span>
-                                    {/* 🛠️ 修復：參數不足時顯示 -- */}
                                     <span className="text-[#f0b90b]">
-                                        {(!amount || !gridLowerPrice || !gridUpperPrice || gridType === "spot") ? "--" : estimatedLiqPrice} USDT
+                                        {estimatedLiqPrice} USDT
                                     </span>
                                 </div>
                             </div>
@@ -390,9 +403,14 @@ const TradingPanel = ({
                                         <button onClick={() => { setAmountType("coin"); }} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "coin" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>數量開單</button>
                                     </div>
                                 ) : (
+                                    // 🔥 [修改] 現貨模式按鈕：根據 買入/賣出 改變文字
                                     <div className="flex bg-[#2b3139] rounded p-0.5 mb-2">
-                                        <button onClick={() => setAmountType("usdt")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>金額買入</button>
-                                        <button onClick={() => setAmountType("coin")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "coin" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>數量買入</button>
+                                        <button onClick={() => setAmountType("usdt")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>
+                                            {side === 'long' ? '金額買入' : '金額賣出'}
+                                        </button>
+                                        <button onClick={() => setAmountType("coin")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "coin" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>
+                                            {side === 'long' ? '數量買入' : '數量賣出'}
+                                        </button>
                                     </div>
                                 )}
 
@@ -410,7 +428,16 @@ const TradingPanel = ({
 
                             {tradeMode === "spot" && (
                                 <div className="text-[10px] text-[#848e9c] space-y-1 mt-3 pb-3 border-b border-[#2b3139]">
-                                    <div className="flex justify-between"><span>可用資金:</span><span className="text-[#eaecef] font-bold">{balance.toFixed(2)} USDT</span></div>
+                                    {/* 🔥 [修改] 可用資金顯示：賣出時顯示持幣量，買入時顯示 USDT */}
+                                    <div className="flex justify-between">
+                                        <span>{side === 'short' ? `持有數量 (${symbol.replace("USDT","")}):` : "可用資金:"}</span>
+                                        <span className="text-[#eaecef] font-bold">
+                                            {side === 'short' 
+                                                ? `${availableCoinBalance ? availableCoinBalance.toFixed(4) : "0.0000"} ${symbol.replace("USDT","")}`
+                                                : `${balance.toFixed(2)} USDT`
+                                            }
+                                        </span>
+                                    </div>
                                     <div className="flex justify-between"><span>{spotInfo.label}</span><span className="text-[#eaecef]">{spotInfo.value}</span></div>
                                     <div className="flex justify-between"><span>手續費 ({spotInfo.rate}%):</span><span className="text-[#eaecef]">{spotInfo.fee}</span></div>
                                 </div>
