@@ -1,5 +1,5 @@
 // src/components/PositionManagement/GridStrategyDetails.jsx
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 
 const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
@@ -18,6 +18,39 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
     const totalRate = grid.amount > 0 ? (totalProfit / grid.amount) * 100 : 0;
     const isProfit = totalProfit >= 0;
     const textColor = isProfit ? 'text-[#089981]' : 'text-[#F23645]';
+
+    // --- 新增：網格掛單計算邏輯 ---
+    const gridOrders = useMemo(() => {
+        if (!grid.gridLower || !grid.gridUpper || !grid.gridLevels) return [];
+        
+        const lower = parseFloat(grid.gridLower);
+        const upper = parseFloat(grid.gridUpper);
+        const levels = parseInt(grid.gridLevels);
+        
+        // 計算網格間距 (等差網格)
+        const step = (upper - lower) / levels;
+        
+        const orders = [];
+        // 從最接近上限的價格開始往下生成 (模擬圖片排序：價格由高到低)
+        for (let i = levels - 1; i >= 0; i--) {
+            const buyPrice = lower + (i * step);
+            const sellPrice = buyPrice + step;
+            
+            // 計算該價格與當前價格的差距百分比
+            const diffPercent = ((buyPrice - currentPrice) / currentPrice) * 100;
+            const sellDiffPercent = ((sellPrice - currentPrice) / currentPrice) * 100;
+
+            orders.push({
+                index: levels - i, // 序號
+                buyPrice: buyPrice,
+                sellPrice: sellPrice,
+                diffPercent: diffPercent,
+                sellDiffPercent: sellDiffPercent
+            });
+        }
+        return orders;
+    }, [grid, currentPrice]);
+    // ---------------------------
 
     return (
         <div className="flex flex-col h-screen bg-[#0b0e11] text-[#eaecef] overflow-hidden">
@@ -39,12 +72,13 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
                 </div>
             </div>
 
-            <div className="flex flex-1 overflow-hidden">
-                {/* 填滿剩餘空間 (w-full) */}
-                <div className="w-full flex flex-col overflow-y-auto bg-[#161a1e] shrink-0">
-                    <div className="p-4 border-b border-[#2b3139]">
+            <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
+                
+                {/* 左側：總覽數據 (保留原本樣式，加上 shrink-0 防止被壓縮) */}
+                <div className="w-full md:w-1/3 flex flex-col overflow-y-auto bg-[#161a1e] shrink-0 border-r border-[#2b3139]">
+                    <div className="p-6 border-b border-[#2b3139]">
                         <div className="text-xs text-[#848e9c] mb-2">總利潤 (USDT)</div>
-                        <div className={`text-3xl font-bold mb-1 ${textColor}`}>
+                        <div className={`text-4xl font-bold mb-2 ${textColor}`}>
                             {totalProfit > 0 ? '+' : ''}{totalProfit.toFixed(2)}
                         </div>
                         <div className={`text-sm ${textColor}`}>
@@ -52,7 +86,7 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
                         </div>
                     </div>
 
-                    <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-y-6 gap-x-4">
+                    <div className="p-6 grid grid-cols-2 gap-y-8 gap-x-4">
                         <div>
                             <div className="text-xs text-[#848e9c] mb-1">網格利潤</div>
                             <div className="text-sm font-bold text-[#089981]">+{realized.toFixed(4)}</div>
@@ -83,6 +117,56 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL }) => {
                         </div>
                     </div>
                 </div>
+
+                {/* 右側 (或下方)：網格掛單詳情 (仿照您的圖片) */}
+                <div className="flex-1 bg-[#0b0e11] flex flex-col overflow-hidden">
+                    <div className="px-4 py-3 border-b border-[#2b3139] bg-[#1e2329] text-sm font-bold text-[#eaecef]">
+                        網格掛單詳情
+                    </div>
+                    
+                    {/* 表頭 */}
+                    <div className="flex text-xs text-[#848e9c] px-4 py-2 border-b border-[#2b3139] bg-[#161a1e]">
+                        <div className="w-1/3 text-left">買入價格 (Buy)</div>
+                        <div className="w-1/3 text-center">當前差距</div>
+                        <div className="w-1/3 text-right">賣出價格 (Sell)</div>
+                    </div>
+
+                    {/* 列表內容 */}
+                    <div className="overflow-y-auto flex-1 custom-scrollbar">
+                        {gridOrders.map((item) => (
+                            <div key={item.index} className="flex items-center px-4 py-3 border-b border-[#2b3139] hover:bg-[#1e2329] transition-colors text-xs">
+                                
+                                {/* 左側：買入價格 */}
+                                <div className="w-1/3 flex items-center gap-2">
+                                    <span className="flex items-center justify-center w-5 h-5 bg-[#089981] text-white font-bold rounded text-[10px]">
+                                        {item.index}
+                                    </span>
+                                    <span className="text-[#089981] font-mono font-medium text-sm">
+                                        {item.buyPrice.toFixed(grid.symbol.includes('BTC') || grid.symbol.includes('ETH') ? 2 : 4)}
+                                    </span>
+                                </div>
+
+                                {/* 中間：漲跌幅 (顯示買入價與現價的距離) */}
+                                <div className="w-1/3 text-center flex flex-col justify-center">
+                                    <span className={`${item.diffPercent >= 0 ? 'text-[#089981]' : 'text-[#F23645]'} font-mono`}>
+                                        {item.diffPercent > 0 ? '+' : ''}{item.diffPercent.toFixed(2)}%
+                                    </span>
+                                </div>
+
+                                {/* 右側：賣出價格 */}
+                                <div className="w-1/3 flex items-center justify-end gap-2">
+                                    <span className="text-[#F23645] font-mono font-medium text-sm">
+                                        {item.sellPrice.toFixed(grid.symbol.includes('BTC') || grid.symbol.includes('ETH') ? 2 : 4)}
+                                    </span>
+                                    <span className="flex items-center justify-center w-5 h-5 bg-[#F23645] text-white font-bold rounded text-[10px]">
+                                        {item.index}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
             </div>
         </div>
     );

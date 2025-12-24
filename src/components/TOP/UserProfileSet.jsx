@@ -28,7 +28,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         return history.filter(item => item.mode === modeMap[transSubTab]);
     }, [history, transSubTab]);
 
-    // 🛠️ 實作專業量化分析 CSV 匯出邏輯
+    // 🛠️ 實作專業量化分析 CSV 匯出邏輯 (已中文化並移除交易編號)
     const handleExport = () => {
         const labels = { futures: "合約", spot: "現貨", grid_futures: "合約網格", grid_spot: "現貨網格" };
         const currentLabel = labels[transSubTab];
@@ -40,8 +40,18 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
 
         alert("正在執行量化分析並匯出 [" + currentLabel + "] 報表...");
 
-        // 🛠️ 2️⃣ 專業化標題欄位
-        const headers = ["Trade_ID", "Timestamp", "Pair", "Side", "Executed_Price", "Quantity", "Fee_USDT", "Realized_PnL", "ROI%", "Efficiency"];
+        // 🛠️ 2️⃣ 專業化標題欄位 (移除 ID，改為全中文)
+        const headers = [
+            "平倉時間", 
+            "交易幣種", 
+            "方向", 
+            "成交均價", 
+            "成交數量", 
+            "手續費 (USDT)", 
+            "已實現盈虧 (USDT)", 
+            "單筆投報率 (%)", 
+            "交易效率 (盈虧/手續費)"
+        ];
         
         let totalVolume = 0;
         let totalFee = 0;
@@ -49,9 +59,10 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
 
         // 轉換資料並計算量化指標
         const rows = filteredHistory.map(item => {
+            // 方向中文化
             const sideText = transSubTab.includes("futures") 
-                ? (item.side === "long" ? "LONG" : "SHORT") 
-                : (item.side === "long" || item.side === "buy" ? "BUY" : "SELL");
+                ? (item.side === "long" ? "做多 (LONG)" : "做空 (SHORT)") 
+                : (item.side === "long" || item.side === "buy" ? "買入 (BUY)" : "賣出 (SELL)");
 
             const price = parseFloat(item.entryPrice || item.price || 0);
             const size = parseFloat(item.size || 0);
@@ -64,8 +75,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
             const pnl = parseFloat(item.pnl || 0);
             const roi = amount > 0 ? (pnl / amount) * 100 : 0;
 
-            // 🛠️ 1️⃣ 新增指標：交易效率 Efficiency (PnL / Fee)
-            // 若手續費為 0 則顯示 - 避免計算錯誤
+            // 交易效率 (Efficiency)
             const efficiency = fee > 0 ? (pnl / fee).toFixed(2) : "-";
 
             // 累加總計
@@ -73,46 +83,45 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
             totalFee += fee;
             totalPnL += pnl;
 
+            // 回傳資料列 (注意順序要跟 headers 一樣，並移除了 ID)
             return [
-                item.id || "-",
-                item.exitTime || item.time,
-                item.symbol,
-                sideText,
-                price.toFixed(2),
-                size.toFixed(4),
-                fee.toFixed(4),
-                pnl.toFixed(2),
-                roi.toFixed(2) + "%",
-                efficiency
+                item.exitTime || item.time,  // 平倉時間
+                item.symbol,                 // 交易幣種
+                sideText,                    // 方向
+                price.toFixed(2),            // 成交均價
+                size.toFixed(4),             // 成交數量
+                fee.toFixed(4),              // 手續費
+                pnl.toFixed(2),              // 已實現盈虧
+                roi.toFixed(2) + "%",        // 單筆投報率
+                efficiency                   // 交易效率
             ];
         });
 
-        // 數據總結列
+        // 數據總結列 (Summary) - 調整為對齊上方欄位
+        // 欄位索引: 0:時間, 1:幣種, 2:方向, 3:價格, 4:數量, 5:手續費, 6:盈虧, 7:ROI, 8:效率
         const summaryRow = [
-            "SUMMARY",
+            "總結 (SUMMARY)",
             "-",
             "-",
             "-",
+            totalVolume.toFixed(2),      // 對齊「成交數量」
+            totalFee.toFixed(4),         // 對齊「手續費」
+            totalPnL.toFixed(2),         // 對齊「已實現盈虧」
             "-",
-            "Total_Volume:",
-            totalVolume.toFixed(2),
-            totalPnL.toFixed(2),
-            "-",
-            "Total_Fee: " + totalFee.toFixed(4)
+            "-"
         ];
 
-        // 🛠️ 1️⃣ 新增指標：相對於初始本金的總投報率
+        // 帳戶整體績效列 (Portfolio Performance)
         const portfolioRoi = (totalPnL / INITIAL_BALANCE) * 100;
         const portfolioRow = [
-            "PORTFOLIO_PERFORMANCE",
+            "帳戶整體績效",
             "-",
             "-",
+            "初始本金: " + INITIAL_BALANCE,
+            "總淨利: " + totalPnL.toFixed(2),
+            "總報酬率: " + portfolioRoi.toFixed(2) + "%",
             "-",
             "-",
-            "Initial_Balance: " + INITIAL_BALANCE,
-            "Net_Profit: " + totalPnL.toFixed(2),
-            "Relative_ROI:",
-            portfolioRoi.toFixed(2) + "%",
             "-"
         ];
 
@@ -124,7 +133,8 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         // 下載動作
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", "Quant_Analysis_" + currentLabel + ".csv");
+        // 下載檔名改為中文
+        link.setAttribute("download", "量化分析報表_" + currentLabel + ".csv");
         link.style.visibility = "hidden";
         document.body.appendChild(link);
         link.click();

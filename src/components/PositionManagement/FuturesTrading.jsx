@@ -7,14 +7,15 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
 
     const renderPositionsTable = (positions) => (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-[#eaecef] min-w-[600px]">
+            <table className="w-full text-left text-xs text-[#eaecef] min-w-[700px]">
                 <thead className="bg-[#2b3139] text-[#848e9c]">
                     <tr>
                         <th className="pl-4 py-2">合約</th>
                         <th>投資額</th>
+                        <th>開倉價格 (Open Price)</th>
+                        <th>盈虧</th>
                         <th>交易所/費率</th>
                         <th>已扣開倉費</th>
-                        <th>盈虧</th>
                         <th className="pr-4 text-right">操作</th>
                     </tr>
                 </thead>
@@ -26,9 +27,11 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                             <tr key={pos.id} className={`border-b border-[#2b3139] ${!isCurrent ? 'opacity-50' : ''}`}>
                                 <td className="pl-4 py-2 font-bold">{pos.symbol} <span className="text-[#848e9c] ml-1">{pos.leverage.toFixed(1)}x</span></td>
                                 <td className="font-mono">{pos.amount.toFixed(2)}</td>
+                                {/* 新增：開倉價格欄位 */}
+                                <td className="font-mono text-[#f0b90b]">{pos.entryPrice.toFixed(2)}</td>
+                                <td className={pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>{pnl.toFixed(2)}</td>
                                 <td className="text-[#848e9c]">{pos.exchange || 'Binance'} ({pos.feeRate || 0.05}%)</td>
                                 <td className="text-[#848e9c]">{pos.entryFee?.toFixed(2) || '0.00'} USDT</td>
-                                <td className={pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>{pnl.toFixed(2)}</td>
                                 <td className="pr-4 text-right">
                                     <button onClick={() => closePosition(pos.id)} className="text-[#F23645] text-[10px] border border-[#474d57] px-2 py-1 rounded bg-[#2b3139] hover:bg-[#cf2d3a] hover:text-white transition-all">平倉</button>
                                 </td>
@@ -36,7 +39,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                         );
                     })}
                     {positions.filter(p => p.mode === 'futures').length === 0 && (
-                        <tr><td colSpan="6" className="text-center py-8 text-gray-500">無合約持倉</td></tr>
+                        <tr><td colSpan="7" className="text-center py-8 text-gray-500">無合約持倉</td></tr>
                     )}
                 </tbody>
             </table>
@@ -49,7 +52,8 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                 <thead className="bg-[#2b3139] text-[#848e9c]">
                     <tr>
                         <th className="pl-4 py-2">幣種</th>
-                        <th>掛單價</th>
+                        {/* 修正：統一標示為掛單價格 */}
+                        <th>掛單價格 (Order Price)</th>
                         <th>預扣手續費</th>
                         <th>交易所/費率</th>
                         <th className="pr-4 text-right">操作</th>

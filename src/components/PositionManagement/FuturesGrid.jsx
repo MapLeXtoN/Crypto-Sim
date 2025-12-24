@@ -1,9 +1,8 @@
 // src/components/PositionManagement/FuturesGrid.jsx
-import React from 'react'; // 不需要 useState
-import { XCircle, Activity, FileText } from 'lucide-react';
-// 移除 GridDetails 引用
+import React from 'react';
+import { XCircle, Activity, Settings2 } from 'lucide-react';
 
-const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, activeGridId }) => {
+const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, onGridSettings, activeGridId }) => {
     const positions = data?.pos || [];
 
     return (
@@ -16,18 +15,18 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                     <tr>
                         <th className="pl-4 py-2">策略類型</th>
                         <th>交易對</th>
-                        <th>槓桿倍數</th>
+                        <th>槓桿</th>
                         <th>投入金額</th>
-                        <th>當前利潤</th>
-                        <th>狀態</th>
+                        <th>網格利潤</th>
+                        <th>趨勢盈虧</th>
                         <th>操作</th>
-                        <th className="pr-4 text-right">詳情</th>
+                        <th className="pr-4 text-right">調整</th>
                     </tr>
                 </thead>
                 <tbody>
                     {positions.filter(p => p.mode === 'grid_futures').map(pos => {
                          const isCurrent = pos.symbol === symbol;
-                         const profit = isCurrent ? calculatePnL(pos, currentPrice) : 0;
+                         const floatingPnl = isCurrent ? calculatePnL(pos, currentPrice) : 0;
                          const isActive = activeGridId === pos.id;
 
                          let dirColor = 'text-[#848e9c]';
@@ -38,7 +37,7 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                          return (
                             <tr 
                                 key={pos.id} 
-                                onClick={() => onGridSelect && onGridSelect(pos.id)} // 點擊整行也能觸發
+                                onClick={() => onGridSelect && onGridSelect(pos.id)}
                                 className={`border-b border-[#2b3139] cursor-pointer transition-colors ${isActive ? 'bg-[#2b3139] border-l-2 border-l-[#f0b90b]' : 'hover:bg-[#2b3139]'}`}
                             >
                                 <td className="pl-4 py-2 font-bold">
@@ -48,31 +47,33 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                                 <td>{pos.symbol}</td>
                                 <td className="text-[#f0b90b] font-bold">{pos.leverage}x</td>
                                 <td>{pos.amount.toFixed(2)} USDT</td>
-                                <td className={profit >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>
-                                    {isCurrent ? profit.toFixed(2) : '-'}
+                                <td className="text-[#089981] font-mono">
+                                    +{(pos.realizedProfit || 0).toFixed(4)}
                                 </td>
-                                <td className="text-[#089981]">運行中</td>
+                                <td className={`font-mono ${floatingPnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}`}>
+                                    {isCurrent ? (floatingPnl >= 0 ? '+' : '') + floatingPnl.toFixed(2) : '-'}
+                                </td>
                                 <td>
                                     <button 
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             closePosition(pos.id);
                                         }} 
-                                        className="flex items-center gap-1 bg-[#2b3139] border border-[#474d57] px-3 py-1.5 rounded text-[#F23645] hover:text-white hover:bg-[#F23645]"
+                                        className="flex items-center gap-1 bg-[#2b3139] border border-[#474d57] px-3 py-1 rounded text-[#F23645] hover:text-white hover:bg-[#F23645]"
                                     >
-                                        <XCircle size={12}/> 停止策略
+                                        <XCircle size={12}/> 停止
                                     </button>
                                 </td>
                                 <td className="pr-4 text-right">
-                                    {/* 🔥 修改這裡：直接呼叫 props 傳下來的切換函數 */}
                                     <button 
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            if (onGridSelect) onGridSelect(pos.id);
+                                            // [修正] 調用專門的設置回調
+                                            if (onGridSettings) onGridSettings(pos.id);
                                         }}
                                         className="text-[#848e9c] hover:text-[#f0b90b] transition-colors"
                                     >
-                                        <FileText size={16}/>
+                                        <Settings2 size={16}/>
                                     </button>
                                 </td>
                             </tr>

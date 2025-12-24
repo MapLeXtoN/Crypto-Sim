@@ -12,15 +12,12 @@ const ChartContainer = ({
     favorites, toggleFavorite,
     activeGrid 
 }) => {
-    // 🔥 修正 1：預設改回 false，並在 useEffect 中設為 true
-    // 這樣可以確保 div ref 已經掛載到 DOM 上，避免 init(null) 導致圖表空白
     const [chartReadyState, setChartReadyState] = useState(false);
 
     useEffect(() => {
         setChartReadyState(true);
     }, []);
     
-    // UI 狀態
     const [activeToolName, setActiveToolName] = useState(null);
     const [magnetMode, setMagnetMode] = useState(false);
 
@@ -59,24 +56,46 @@ const ChartContainer = ({
         klineData,
         themeOptions,
         indicators,
-        indicatorSettings
+        indicatorSettings,
+        symbol // 傳入幣種
     });
+
+    // 🛠️ 必須修復：雙擊右側價格軸重置視圖
+    useEffect(() => {
+        const container = chartContainerRef.current;
+        if (!container || !chartInstance.current) return;
+
+        const handleDblClick = (e) => {
+            const rect = container.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const containerWidth = rect.width;
+            
+            // 判斷是否雙擊在右側價格刻度欄 (約佔寬度 10%)
+            if (clickX > containerWidth * 0.9) {
+                if (typeof chartInstance.current.executeAction === 'function') {
+                    // fitView 會重置 Y 軸縮放、位移並自適應當前顯示區域
+                    chartInstance.current.executeAction('fitView');
+                }
+            }
+        };
+
+        container.addEventListener('dblclick', handleDblClick);
+        return () => container.removeEventListener('dblclick', handleDblClick);
+    }, [chartInstance]);
 
     const requestRef = useRef();
 
-    // Resize Logic - 更加安全的寫法
+    // Resize 邏輯
     useEffect(() => {
-        // 只有當 chartInstance 存在且 ref 存在時才監聽
-        if (!chartInstance || !chartContainerRef?.current) return;
+        if (!chartInstance.current || !chartContainerRef?.current) return;
         
         const resizeObserver = new ResizeObserver((entries) => {
             if (requestRef.current) return;
             requestRef.current = requestAnimationFrame(() => {
-                if (entries[0] && chartInstance) {
+                if (entries[0] && chartInstance.current) {
                     const { width, height } = entries[0].contentRect;
-                    // 增加檢查：確保寬高有效
-                    if (width > 0 && height > 0 && typeof chartInstance.resize === 'function') {
-                        chartInstance.resize(width, height);
+                    if (width > 0 && height > 0) {
+                        chartInstance.current.resize();
                     }
                 }
                 requestRef.current = null;
@@ -84,96 +103,12 @@ const ChartContainer = ({
         });
 
         resizeObserver.observe(chartContainerRef.current);
-
-        const handleLayoutResize = () => { if(chartInstance) chartInstance.resize(); };
-        window.addEventListener('layout-resize', handleLayoutResize);
-        const handleFullscreenChange = () => { if (chartInstance) chartInstance.resize(); };
-        document.addEventListener('fullscreenchange', handleFullscreenChange);
         
         return () => {
             resizeObserver.disconnect();
-            window.removeEventListener('layout-resize', handleLayoutResize);
-            document.removeEventListener('fullscreenchange', handleFullscreenChange);
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [chartInstance]); // 移除 chartContainerRef 依賴，因为它是一個 ref，變化不會觸發 effect
-
-    // 🔥🔥🔥 網格線繪製邏輯 (安全修正版) 🔥🔥🔥
-    const gridOverlayIds = useRef([]); 
-
-    useEffect(() => {
-        // 1. 基礎檢查：嚴格確保數據存在
-        if (!chartInstance || !klineData || klineData.length < 2) return;
-
-        // 使用 setTimeout 確保圖表已經消化了最新的數據
-        const timer = setTimeout(() => {
-            // 安全檢查：確保方法存在
-            if (typeof chartInstance.createOverlay !== 'function' || typeof chartInstance.removeOverlay !== 'function') {
-                return;
-            }
-
-            try {
-                // 移除舊的線條
-                gridOverlayIds.current.forEach(id => {
-                    try { chartInstance.removeOverlay(id); } catch(e) {}
-                });
-                gridOverlayIds.current = [];
-
-                if (activeGrid && Array.isArray(activeGrid.gridLines)) {
-                    
-                    // 安全獲取時間戳
-                    const firstData = klineData[0];
-                    const lastData = klineData[klineData.length - 1];
-
-                    if (!firstData || !lastData) return;
-
-                    const startTs = firstData.timestamp;
-                    const endTs = lastData.timestamp;
-
-                    // 確保時間戳是有效數字
-                    if (typeof startTs === 'number' && typeof endTs === 'number') {
-                        
-                        const drawLine = (price, color, isSolid = false) => {
-                            const numericPrice = Number(price);
-                            if (!Number.isFinite(numericPrice)) return;
-
-                            const id = chartInstance.createOverlay({
-                                name: 'segment', 
-                                lock: true,
-                                points: [
-                                    { timestamp: startTs, value: numericPrice },
-                                    { timestamp: endTs, value: numericPrice }
-                                ],
-                                styles: { 
-                                    line: { 
-                                        style: 'solid', 
-                                        color: color, 
-                                        width: isSolid ? 2 : 1 
-                                    }
-                                }
-                            });
-                            if (id) gridOverlayIds.current.push(id);
-                        };
-
-                        // A. 畫中間的網格線
-                        activeGrid.gridLines.forEach(line => {
-                            const color = line.type === 'buy' ? '#089981' : '#F23645'; 
-                            drawLine(line.price, color);
-                        });
-
-                        // B. 畫上下邊界
-                        if(activeGrid.gridUpper) drawLine(activeGrid.gridUpper, '#eaecef', true);
-                        if(activeGrid.gridLower) drawLine(activeGrid.gridLower, '#eaecef', true);
-                    }
-                }
-            } catch (error) {
-                console.warn("Grid draw safe-fail:", error);
-            }
-        }, 100); // 縮短延遲
-
-        return () => clearTimeout(timer);
-
-    }, [activeGrid, chartInstance, klineData]); // 依賴項正確
+    }, [chartInstance]);
 
     const handleDrawingCancel = useCallback(() => { setActiveToolName(null); }, []);
     

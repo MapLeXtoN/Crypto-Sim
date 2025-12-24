@@ -9,12 +9,12 @@ import FuturesView from './FuturesTrading';
 
 const TransactionDetails = ({ 
     filteredData, currentPrice, closePosition, cancelOrder, calculatePnL, symbol,
-    onGridSelect, activeGridId 
+    onGridSelect, activeGridId, onGridSettings // [新增] 接收 onGridSettings
 }) => {
     
     const [category, setCategory] = useState('spot'); 
     const [gridType, setGridType] = useState('spot'); 
-    const [subTab, setSubTab] = useState('positions'); 
+    const [subTab, setSubTab] = useState('orders'); 
 
     const safeData = filteredData?.data || { pos: [], ord: [], history: [] };
 
@@ -44,10 +44,10 @@ const TransactionDetails = ({
         <div className="h-64 bg-[#1e2329] border-t border-[#2b3139] flex flex-col">
             
             <div className="flex items-center border-b border-[#2b3139]">
-                <div onClick={() => { setCategory('spot'); if(subTab === 'positions') setSubTab('orders'); }} className={getTabClass(category === 'spot')}>
+                <div onClick={() => { setCategory('spot'); setSubTab('orders'); }} className={getTabClass(category === 'spot')}>
                     <LayoutList size={16}/> 交易 (現貨)
                 </div>
-                <div onClick={() => setCategory('futures')} className={getTabClass(category === 'futures')}>
+                <div onClick={() => { setCategory('futures'); setSubTab('positions'); }} className={getTabClass(category === 'futures')}>
                     <BarChart2 size={16}/> 合約
                 </div>
                 <div onClick={() => setCategory('grid')} className={getTabClass(category === 'grid')}>
@@ -63,7 +63,6 @@ const TransactionDetails = ({
                     </div>
                 ) : (
                     <div className="flex gap-6">
-                        {/* 🛠️ 修改：移除現貨下的「當前持倉」按鈕 */}
                         {category !== 'spot' && (
                             <button onClick={() => setSubTab('positions')} className={`text-xs font-bold transition-colors ${subTab === 'positions' ? 'text-[#f0b90b]' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>當前持倉</button>
                         )}
@@ -88,11 +87,13 @@ const TransactionDetails = ({
                             <SpotGrid 
                                 data={safeData} currentPrice={currentPrice} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
                                 onGridSelect={onGridSelect} activeGridId={activeGridId} 
+                                onGridSettings={onGridSettings} // [傳遞]
                             />
                         ) : (
                             <FuturesGrid 
                                 data={safeData} currentPrice={currentPrice} closePosition={closePosition} calculatePnL={calculatePnL} symbol={symbol} 
                                 onGridSelect={onGridSelect} activeGridId={activeGridId} 
+                                onGridSettings={onGridSettings} // [傳遞]
                             />
                         )}
                     </>
