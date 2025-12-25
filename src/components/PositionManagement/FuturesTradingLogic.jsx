@@ -34,12 +34,10 @@ export const useFuturesTradingLogic = ({
     }, [currentPrice, orders, setOrders, setPositions, setHistory]);
 
     const calculateFuturesPnL = useCallback((pos, price) => {
-        // 🔥 加強防呆
         if (!price || isNaN(price) || !pos) return 0;
         return (pos.side === 'long' ? price - pos.entryPrice : pos.entryPrice - price) * (pos.size || 0);
     }, []);
 
-    // 🔥 [核心修正] 這裡是最嚴格的守門員
     const handleFuturesTrade = useCallback((tradeParams) => {
         const { side, amount, amountType, orderType, priceInput, leverage, futuresInputMode, takeProfit, stopLoss } = tradeParams;
         
@@ -71,18 +69,21 @@ export const useFuturesTradingLogic = ({
             margin = usdtValue / lev; 
         } else {
             // 金額開單
+            // 🔥 [修正] 嚴格依照用戶定義：
+            // cost (本金下單) = 輸入的是本金(margin) => 總價值(usdtValue) = 本金 * 槓桿
+            // value (價值下單) = 輸入的是總價值(usdtValue) => 本金(margin) = 總價值 / 槓桿
             if (futuresInputMode === 'cost') { 
                 margin = val; 
                 usdtValue = margin * lev; 
                 coinSize = usdtValue / executionPrice; 
             } else { 
+                // value 模式
                 usdtValue = val; 
                 margin = usdtValue / lev; 
                 coinSize = usdtValue / executionPrice; 
             }
         }
 
-        // 🔥 如果算出來是 NaN，絕對不能放行！
         if (isNaN(usdtValue) || isNaN(margin) || isNaN(coinSize) || !isFinite(coinSize)) {
             console.error("Trade Error: Invalid Calc", { usdtValue, margin, coinSize });
             return alert("數值計算錯誤，請檢查輸入參數！");

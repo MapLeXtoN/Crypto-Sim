@@ -1,9 +1,28 @@
 // src/components/PositionManagement/FuturesGrid.jsx
 import React from 'react';
-import { XCircle, Activity, Settings2 } from 'lucide-react';
+import { XCircle, Activity } from 'lucide-react';
 
-const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, onGridSettings, activeGridId }) => {
+const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, activeGridId }) => {
     const positions = data?.pos || [];
+
+    // 🔥 [新增] 強平價計算器
+    const calculateLiq = (pos) => {
+        if (!pos || !pos.entryPrice || !pos.size) return "--";
+        const entry = parseFloat(pos.entryPrice);
+        const margin = parseFloat(pos.margin);
+        const size = parseFloat(pos.size);
+        const maintMargin = 0.005; 
+
+        let liq = 0;
+        if (pos.gridDirection === 'long') {
+            liq = entry - (margin / size) + (entry * maintMargin);
+            return liq > 0 ? liq.toFixed(2) : "0.00";
+        } else if (pos.gridDirection === 'short') {
+            liq = entry + (margin / size) - (entry * maintMargin);
+            return liq.toFixed(2);
+        }
+        return "--";
+    };
 
     return (
         <div>
@@ -19,8 +38,9 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                         <th>投入金額</th>
                         <th>網格利潤</th>
                         <th>趨勢盈虧</th>
-                        <th>操作</th>
-                        <th className="pr-4 text-right">調整</th>
+                        {/* 🔥 [新增] 強平價欄位 */}
+                        <th>預估強平價</th>
+                        <th className="pr-4 text-right">操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -28,6 +48,7 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                          const isCurrent = pos.symbol === symbol;
                          const floatingPnl = isCurrent ? calculatePnL(pos, currentPrice) : 0;
                          const isActive = activeGridId === pos.id;
+                         const liqPrice = calculateLiq(pos);
 
                          let dirColor = 'text-[#848e9c]';
                          let dirText = '中性';
@@ -53,27 +74,17 @@ const FuturesGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, 
                                 <td className={`font-mono ${floatingPnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}`}>
                                     {isCurrent ? (floatingPnl >= 0 ? '+' : '') + floatingPnl.toFixed(2) : '-'}
                                 </td>
-                                <td>
+                                {/* 🔥 [新增] 強平價顯示 */}
+                                <td className="text-[#f0b90b] font-mono">{liqPrice}</td>
+                                <td className="pr-4 text-right">
                                     <button 
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             closePosition(pos.id);
                                         }} 
-                                        className="flex items-center gap-1 bg-[#2b3139] border border-[#474d57] px-3 py-1 rounded text-[#F23645] hover:text-white hover:bg-[#F23645]"
+                                        className="flex items-center gap-1 bg-[#2b3139] border border-[#474d57] px-3 py-1 rounded text-[#F23645] hover:text-white hover:bg-[#F23645] ml-auto"
                                     >
                                         <XCircle size={12}/> 停止
-                                    </button>
-                                </td>
-                                <td className="pr-4 text-right">
-                                    <button 
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            // [修正] 調用專門的設置回調
-                                            if (onGridSettings) onGridSettings(pos.id);
-                                        }}
-                                        className="text-[#848e9c] hover:text-[#f0b90b] transition-colors"
-                                    >
-                                        <Settings2 size={16}/>
                                     </button>
                                 </td>
                             </tr>

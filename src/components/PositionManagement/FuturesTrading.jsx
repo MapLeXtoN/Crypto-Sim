@@ -1,4 +1,4 @@
-// src/components/TradingPanel/FuturesTrading.jsx
+// src/components/PositionManagement/FuturesTrading.jsx
 import React, { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
@@ -12,13 +12,14 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
 
     const renderPositionsTable = (positions) => (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-[#eaecef] min-w-[700px]">
+            <table className="w-full text-left text-xs text-[#eaecef] min-w-[750px]">
                 <thead className="bg-[#2b3139] text-[#848e9c]">
                     <tr>
                         <th className="pl-4 py-2">合約</th>
-                        {/* 🔥 [新增] 方向標題 */}
                         <th>方向</th>
-                        <th>投資額</th>
+                        {/* 🔥 [修改] 拆分為 本金 與 倉位價值 */}
+                        <th>本金 (Margin)</th>
+                        <th>倉位價值 (Value)</th>
                         <th>開倉價格 (Open Price)</th>
                         <th>盈虧</th>
                         <th>交易所/費率</th>
@@ -37,11 +38,16 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                                     {pos.symbol} 
                                     <span className="text-[#848e9c] ml-1">{safeNum(pos.leverage).toFixed(1)}x</span>
                                 </td>
-                                {/* 🔥 [新增] 顯示做多/做空 */}
                                 <td className={`font-bold ${pos.side === 'long' ? 'text-[#089981]' : 'text-[#F23645]'}`}>
                                     {pos.side === 'long' ? '做多' : '做空'}
                                 </td>
-                                <td className="font-mono">{safeNum(pos.amount).toFixed(2)}</td>
+                                
+                                {/* 🔥 [新增] 顯示本金 (Margin) */}
+                                <td className="font-mono text-[#eaecef]">{safeNum(pos.margin).toFixed(2)}</td>
+                                
+                                {/* 🔥 [修改] 原本的 amount 其實是倉位價值 */}
+                                <td className="font-mono text-[#848e9c]">{safeNum(pos.amount).toFixed(2)}</td>
+
                                 <td className="font-mono text-[#f0b90b]">{safeNum(pos.entryPrice).toFixed(2)}</td>
                                 <td className={pnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}>{pnl.toFixed(2)}</td>
                                 <td className="text-[#848e9c]">{pos.exchange || 'Binance'} ({safeNum(pos.feeRate || 0.05)}%)</td>
@@ -53,7 +59,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                         );
                     })}
                     {positions.filter(p => p.mode === 'futures').length === 0 && (
-                        <tr><td colSpan="8" className="text-center py-8 text-gray-500">無合約持倉</td></tr>
+                        <tr><td colSpan="9" className="text-center py-8 text-gray-500">無合約持倉</td></tr>
                     )}
                 </tbody>
             </table>
@@ -62,13 +68,14 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
 
     const renderOrdersTable = (orders) => (
         <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-[#eaecef] min-w-[600px]">
+            <table className="w-full text-left text-xs text-[#eaecef] min-w-[750px]">
                 <thead className="bg-[#2b3139] text-[#848e9c]">
                     <tr>
-                        <th className="pl-4 py-2">幣種</th>
-                        {/* 🔥 [新增] 方向標題 */}
+                        <th className="pl-4 py-2">幣種/槓桿</th>
                         <th>方向</th>
-                        <th>掛單價格 (Order Price)</th>
+                        <th>本金 (Margin)</th>
+                        <th>倉位價值 (Value)</th>
+                        <th>掛單價格</th>
                         <th>預扣手續費</th>
                         <th>交易所/費率</th>
                         <th className="pr-4 text-right">操作</th>
@@ -77,10 +84,20 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                 <tbody>
                     {orders.filter(o => o.mode === 'futures').map(order => (
                         <tr key={order.id} className="border-b border-[#2b3139]">
-                            <td className="pl-4 py-2 font-bold">{order.symbol}</td>
-                            {/* 🔥 [新增] 顯示做多/做空 */}
+                            <td className="pl-4 py-2 font-bold">
+                                {order.symbol}
+                                <span className="ml-2 text-[10px] text-[#f0b90b] bg-[#2b3139] border border-[#474d57] px-1 rounded">
+                                    {safeNum(order.leverage)}x
+                                </span>
+                            </td>
                             <td className={`font-bold ${order.side === 'long' ? 'text-[#089981]' : 'text-[#F23645]'}`}>
                                 {order.side === 'long' ? '做多' : '做空'}
+                            </td>
+                            <td className="font-mono text-[#eaecef]">
+                                {safeNum(order.margin).toFixed(2)}
+                            </td>
+                            <td className="font-mono text-[#848e9c]">
+                                {safeNum(order.amount).toFixed(2)}
                             </td>
                             <td className="font-mono text-[#f0b90b]">{safeNum(order.price).toFixed(2)}</td>
                             <td className="text-[#848e9c]">{safeNum(order.entryFee).toFixed(2)} USDT</td>
@@ -91,7 +108,7 @@ const FuturesView = ({ subTab, data, currentPrice, cancelOrder, closePosition, c
                         </tr>
                     ))}
                     {orders.filter(o => o.mode === 'futures').length === 0 && (
-                        <tr><td colSpan="6" className="text-center py-8 text-gray-500">無合約掛單</td></tr>
+                        <tr><td colSpan="8" className="text-center py-8 text-gray-500">無合約掛單</td></tr>
                     )}
                 </tbody>
             </table>

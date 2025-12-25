@@ -1,8 +1,8 @@
 // src/components/PositionManagement/SpotGrid.jsx
 import React from 'react';
-import { XCircle, Activity, Settings2 } from 'lucide-react';
+import { XCircle, Activity } from 'lucide-react';
 
-const SpotGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, onGridSettings, activeGridId }) => {
+const SpotGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onGridSelect, activeGridId }) => {
     const positions = data?.pos || [];
 
     return (
@@ -18,8 +18,7 @@ const SpotGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onG
                         <th>投入金額</th>
                         <th>網格利潤</th>
                         <th>趨勢盈虧</th>
-                        <th>操作</th>
-                        <th className="pr-4 text-right">調整</th>
+                        <th className="pr-4 text-right">操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -45,34 +44,22 @@ const SpotGrid = ({ data, currentPrice, closePosition, calculatePnL, symbol, onG
                                 <td className={`font-mono ${floatingPnl >= 0 ? 'text-[#089981]' : 'text-[#F23645]'}`}>
                                     {isCurrent && !isNaN(floatingPnl) ? (floatingPnl >= 0 ? '+' : '') + floatingPnl.toFixed(2) : '-'}
                                 </td>
-                                <td>
+                                <td className="pr-4 text-right">
                                     <button 
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             closePosition(pos.id);
                                         }} 
-                                        className="flex items-center gap-1 bg-[#2b3139] border border-[#474d57] px-3 py-1 rounded text-[#F23645] hover:text-white hover:bg-[#F23645]"
+                                        className="flex items-center gap-1 bg-[#2b3139] border border-[#474d57] px-3 py-1 rounded text-[#F23645] hover:text-white hover:bg-[#F23645] ml-auto"
                                     >
                                         <XCircle size={12}/> 停止
-                                    </button>
-                                </td>
-                                <td className="pr-4 text-right">
-                                    <button 
-                                        onClick={(e) => {
-                                            e.stopPropagation(); 
-                                            // [修正] 調用專門的設置回調
-                                            if (onGridSettings) onGridSettings(pos.id);
-                                        }}
-                                        className="text-[#848e9c] hover:text-[#f0b90b] transition-colors"
-                                    >
-                                        <Settings2 size={16}/>
                                     </button>
                                 </td>
                             </tr>
                          )
                     })}
                     {positions.filter(p => p.mode === 'grid_spot').length === 0 && (
-                        <tr><td colSpan="7" className="text-center py-12 text-gray-500">無運行中的現貨網格策略</td></tr>
+                        <tr><td colSpan="6" className="text-center py-12 text-gray-500">無運行中的現貨網格策略</td></tr>
                     )}
                 </tbody>
             </table>
