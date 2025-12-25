@@ -46,91 +46,38 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         });
     }, [history, transSubTab]);
 
+    // 🔥 [核心修正] 針對不同類別生成客製化報表
     const handleExport = () => {
-        const labels = { futures: "合約", spot: "現貨", grid_futures: "合約網格", grid_spot: "現貨網格" };
+        const labels = { futures: "合約交易", spot: "現貨交易", grid_futures: "合約網格", grid_spot: "現貨網格" };
         const currentLabel = labels[transSubTab];
-        
-        // 檢查：如果是現貨，即使沒有歷史紀錄，只要有持倉也允許匯出
+        const isGrid = transSubTab.includes('grid');
+        const isFutures = transSubTab === 'futures';
+        const isSpot = transSubTab === 'spot';
+
+        // 檢查是否有資料
         const hasHistory = filteredHistory.length > 0;
         const hasHoldings = heldCoins && heldCoins.length > 0;
-        
-        if (!hasHistory && !(transSubTab === 'spot' && hasHoldings)) {
-            alert("目前無資料可供匯出");
-            return;
+        if (!hasHistory && !(isSpot && hasHoldings)) {
+            return alert("目前無資料可供匯出");
         }
 
-        alert("正在執行量化分析並匯出 [" + currentLabel + "] 報表...");
+        alert(`正在生成 [${currentLabel}] 專業分析報表...`);
 
-        // --- Part 1: 歷史交易紀錄 (共用) ---
-        const headers = [
-            "平倉時間", "開單時間", "持單時間", "交易幣種", "方向", "成交均價", "成交數量", 
-            "成交金額 (USDT)", "手續費 (USDT)", "已實現盈虧 (USDT)", "單筆投報率 (%)"
-        ];
-        
-        let totalVolume = 0;
-        let totalFee = 0;
-        let totalPnL = 0;
+        let csvRows = [];
 
-        const rows = filteredHistory.map(item => {
-            const sideText = transSubTab.includes("futures") 
-                ? (item.side === "long" ? "做多 (LONG)" : "做空 (SHORT)") 
-                : (item.side === "long" || item.side === "buy" ? "買入 (BUY)" : "賣出 (SELL)");
+        // =========================================================
+        // 1. 現貨報表 (Spot): 重點在「持倉資產」與「成本」
+        // =========================================================
+        if (isSpot) {
+            // Part A: 持倉快照 (最重要)
+            const holdingHeaders = ["【當前持倉快照】", "幣種", "持倉數量", "平均成本", "當前市價", "總成本(USDT)", "當前市值(USDT)", "未實現盈虧(USDT)", "報酬率(%)"];
+            csvRows.push(holdingHeaders);
 
-            const price = parseFloat(item.entryPrice || item.price || 0);
-            const size = parseFloat(item.size || 0);
-            const amount = parseFloat(item.amount || (price * size));
-            const fee = parseFloat(item.entryFee || (amount * (item.feeRate || 0) / 100) || 0);
-            const pnl = parseFloat(item.pnl || 0);
-            const roi = amount > 0 ? (pnl / amount) * 100 : 0;
-
-            const openT = new Date(item.time);
-            const closeT = new Date(item.exitTime || item.time);
-            let durationStr = "-";
-            if (!isNaN(openT) && !isNaN(closeT)) {
-                const diffMs = closeT - openT;
-                const hrs = Math.floor(diffMs / 3600000);
-                const mins = Math.floor((diffMs % 3600000) / 60000);
-                durationStr = `${hrs}h ${mins}m`;
-            }
-
-            totalVolume += amount;
-            totalFee += fee;
-            totalPnL += pnl;
-
-            return [
-                item.exitTime || item.time,
-                item.time,
-                durationStr,
-                item.symbol,
-                sideText,
-                price.toFixed(2),
-                size.toFixed(4),
-                amount.toFixed(2),
-                fee.toFixed(4),
-                pnl.toFixed(2),
-                roi.toFixed(2) + "%"
-            ];
-        });
-
-        const summaryRow = ["歷史總結 (HISTORY SUMMARY)", "-", "-", "-", "-", "-", "-", totalVolume.toFixed(2), totalFee.toFixed(4), totalPnL.toFixed(2), "-"];
-        const portfolioRoi = (totalPnL / INITIAL_BALANCE) * 100;
-        const portfolioRow = ["歷史績效分析", "-", "-", "-", "-", "-", "-", "初始本金: " + INITIAL_BALANCE, "總淨利: " + totalPnL.toFixed(2), "總報酬率: " + portfolioRoi.toFixed(2) + "%", "-"];
-
-        // 🔥 [修正] Part 2: 當前持倉快照 (僅限 "現貨" 報表顯示)
-        let csvContent = "";
-        
-        if (transSubTab === 'spot') {
-            const holdingHeaders = ["當前持倉 (CURRENT HOLDINGS)", "數量", "平均成本", "當前市價", "總成本 (USDT)", "當前市值 (USDT)", "未實現盈虧 (USDT)", "報酬率 (%)"];
-            let holdingRows = [];
-            
             if (hasHoldings) {
-                holdingRows = heldCoins.map(coin => {
+                heldCoins.forEach(coin => {
                     const totalCost = coin.quantity * coin.avgPrice;
                     const livePrice = marketPrices[`${coin.symbol}USDT`] || 0;
-                    
-                    let marketValue = 0;
-                    let unrealizedPnL = 0;
-                    let roi = 0;
+                    let marketValue = 0, unrealizedPnL = 0, roi = 0;
 
                     if (livePrice > 0) {
                         marketValue = coin.quantity * livePrice;
@@ -138,35 +85,151 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                         roi = totalCost > 0 ? (unrealizedPnL / totalCost) * 100 : 0;
                     }
 
-                    return [
-                        coin.symbol,
-                        coin.quantity.toFixed(4),
-                        coin.avgPrice.toFixed(2),
-                        livePrice > 0 ? livePrice.toFixed(2) : "載入中...",
-                        totalCost.toFixed(2),
-                        livePrice > 0 ? marketValue.toFixed(2) : "-",
+                    csvRows.push([
+                        "-", coin.symbol, coin.quantity.toFixed(4), coin.avgPrice.toFixed(2), 
+                        livePrice > 0 ? livePrice.toFixed(2) : "N/A",
+                        totalCost.toFixed(2), livePrice > 0 ? marketValue.toFixed(2) : "-",
                         livePrice > 0 ? unrealizedPnL.toFixed(2) : "-",
                         livePrice > 0 ? roi.toFixed(2) + "%" : "-"
-                    ];
+                    ]);
                 });
             } else {
-                holdingRows = [["無持有資產", "-", "-", "-", "-", "-", "-", "-"]];
+                csvRows.push(["無持有資產", "-", "-", "-", "-", "-", "-", "-", "-"]);
             }
+            csvRows.push([]); // 空行
 
-            // 現貨報表：歷史 + 持倉
-            csvContent = "\uFEFF" + [headers, ...rows, [], summaryRow, portfolioRow, [], [], holdingHeaders, ...holdingRows].map(e => e.join(",")).join("\n");
-        
-        } else {
-            // 合約與網格報表：只顯示歷史
-            csvContent = "\uFEFF" + [headers, ...rows, [], summaryRow, portfolioRow].map(e => e.join(",")).join("\n");
+            // Part B: 歷史成交
+            const histHeaders = ["【歷史成交紀錄】", "時間", "幣種", "方向", "成交價", "數量", "成交金額(USDT)", "手續費"];
+            csvRows.push(histHeaders);
+            
+            filteredHistory.forEach(item => {
+                const price = parseFloat(item.entryPrice || item.price || 0);
+                const size = parseFloat(item.size || 0);
+                const amount = parseFloat(item.amount || (price * size));
+                const fee = parseFloat(item.entryFee || 0);
+                
+                csvRows.push([
+                    "-", item.time, item.symbol, 
+                    (item.side === 'long' || item.side === 'buy') ? "買入" : "賣出",
+                    price.toFixed(2), size.toFixed(4), amount.toFixed(2), fee.toFixed(4)
+                ]);
+            });
         }
 
+        // =========================================================
+        // 2. 合約報表 (Futures): 重點在「勝率」與「績效」
+        // =========================================================
+        else if (isFutures) {
+            // 計算績效數據
+            let winCount = 0, lossCount = 0, totalProfit = 0, totalLoss = 0;
+            let maxWin = 0, maxLoss = 0;
+
+            const tradeRows = filteredHistory.map(item => {
+                const pnl = parseFloat(item.pnl || 0);
+                const fee = parseFloat(item.entryFee || 0) + parseFloat(item.fee || 0);
+                const netPnl = pnl - fee;
+
+                if (netPnl > 0) { winCount++; totalProfit += netPnl; maxWin = Math.max(maxWin, netPnl); }
+                else { lossCount++; totalLoss += netPnl; maxLoss = Math.min(maxLoss, netPnl); }
+
+                // 計算持單時間 (天+時)
+                const openT = new Date(item.time);
+                const closeT = new Date(item.exitTime || item.time);
+                let dur = "-";
+                if (!isNaN(openT) && !isNaN(closeT)) {
+                    const diff = Math.max(0, closeT - openT);
+                    const d = Math.floor(diff / 86400000);
+                    const h = Math.floor((diff % 86400000) / 3600000);
+                    dur = `${d}天${h}時`;
+                }
+
+                return [
+                    item.exitTime, item.time, dur, item.symbol,
+                    item.side === 'long' ? "做多" : "做空",
+                    (item.leverage || 1) + "x",
+                    parseFloat(item.entryPrice).toFixed(2),
+                    parseFloat(item.closePrice || item.price).toFixed(2),
+                    parseFloat(item.size).toFixed(4),
+                    fee.toFixed(4), netPnl.toFixed(2)
+                ];
+            });
+
+            const totalTrades = winCount + lossCount;
+            const winRate = totalTrades > 0 ? ((winCount / totalTrades) * 100).toFixed(2) : "0.00";
+            const netProfit = totalProfit + totalLoss;
+            const profitFactor = Math.abs(totalLoss) > 0 ? (totalProfit / Math.abs(totalLoss)).toFixed(2) : "∞";
+
+            // Part A: 績效總結
+            csvRows.push(["【交易績效總結】", "總交易次數", "勝率", "總獲利(USDT)", "總虧損(USDT)", "淨利潤(USDT)", "獲利因子", "最大單筆獲利", "最大單筆虧損"]);
+            csvRows.push(["-", totalTrades, winRate + "%", totalProfit.toFixed(2), totalLoss.toFixed(2), netProfit.toFixed(2), profitFactor, maxWin.toFixed(2), maxLoss.toFixed(2)]);
+            csvRows.push([]); 
+
+            // Part B: 詳細紀錄
+            csvRows.push(["【詳細交易紀錄】", "平倉時間", "開倉時間", "持單時間", "幣種", "方向", "槓桿", "開倉價", "平倉價", "數量", "手續費", "淨損益(USDT)"]);
+            csvRows = csvRows.concat(tradeRows);
+        }
+
+        // =========================================================
+        // 3. 網格報表 (Grid): 重點在「策略效率」與「套利統計」
+        // =========================================================
+        else if (isGrid) {
+            // 依幣種分組統計
+            const strategyStats = {};
+            
+            filteredHistory.forEach(item => {
+                if (!strategyStats[item.symbol]) {
+                    strategyStats[item.symbol] = { 
+                        count: 0, totalGridProfit: 0, totalFee: 0, startTime: item.time, endTime: item.time 
+                    };
+                }
+                const stats = strategyStats[item.symbol];
+                stats.count += 1;
+                stats.totalGridProfit += parseFloat(item.pnl || 0);
+                stats.totalFee += parseFloat(item.fee || 0);
+                // 更新時間範圍
+                if (new Date(item.time) < new Date(stats.startTime)) stats.startTime = item.time;
+                if (new Date(item.time) > new Date(stats.endTime)) stats.endTime = item.time;
+            });
+
+            // Part A: 策略運行總表
+            csvRows.push(["【網格策略效率總表】", "策略幣種", "運行時間", "總套利次數", "總網格利潤(USDT)", "總手續費(USDT)", "平均單次利潤"]);
+            
+            Object.keys(strategyStats).forEach(sym => {
+                const s = strategyStats[sym];
+                // 計算大約運行天數
+                const start = new Date(s.startTime);
+                const end = new Date(s.endTime);
+                const days = Math.max(1, Math.floor((end - start) / 86400000)); 
+                const avgProfit = s.count > 0 ? (s.totalGridProfit / s.count).toFixed(4) : 0;
+
+                csvRows.push([
+                    "-", sym, `${days}天`, s.count, 
+                    s.totalGridProfit.toFixed(4), s.totalFee.toFixed(4), avgProfit
+                ]);
+            });
+            csvRows.push([]);
+
+            // Part B: 詳細撮合紀錄
+            csvRows.push(["【詳細撮合紀錄】", "成交時間", "幣種", "方向", "成交價", "成交數量", "成交金額", "網格利潤"]);
+            filteredHistory.forEach(item => {
+                csvRows.push([
+                    "-", item.time, item.symbol,
+                    (item.side === 'long' || item.side === 'buy') ? "買入" : "賣出",
+                    parseFloat(item.price).toFixed(2),
+                    parseFloat(item.size).toFixed(4),
+                    parseFloat(item.amount).toFixed(2),
+                    parseFloat(item.pnl).toFixed(4)
+                ]);
+            });
+        }
+
+        // --- 產生 CSV ---
+        const csvContent = "\uFEFF" + csvRows.map(e => e.join(",")).join("\n");
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
-        
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", "量化分析報表_" + currentLabel + ".csv");
+        link.setAttribute("download", `量化報表_${currentLabel}.csv`);
         link.style.visibility = "hidden";
         document.body.appendChild(link);
         link.click();
@@ -251,15 +314,8 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                                         <span className="text-center text-[#eaecef] font-mono">{coin.quantity.toFixed(4)}</span>
                                                         <span className="text-center text-[#eaecef] font-mono">{coin.avgPrice.toFixed(2)}</span>
                                                         <span className="text-center text-[#848e9c] font-mono">{totalCost.toFixed(2)}</span>
-                                                        
                                                         <span className={`text-right font-mono ${livePrice > 0 ? (isProfit ? 'text-[#089981]' : 'text-[#F23645]') : 'text-[#848e9c]'}`}>
-                                                            {livePrice > 0 ? (
-                                                                <>
-                                                                    {isProfit ? '+' : ''}{profit.toFixed(2)}
-                                                                </>
-                                                            ) : (
-                                                                <span className="text-[10px]">載入中...</span>
-                                                            )}
+                                                            {livePrice > 0 ? <>{isProfit ? '+' : ''}{profit.toFixed(2)}</> : <span className="text-[10px]">載入中...</span>}
                                                         </span>
                                                     </div>
                                                 );
@@ -275,27 +331,6 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                     <div className="flex-1 space-y-2"><label className="text-xs text-[#848e9c]">顯示名稱</label><div className="flex gap-2"><input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="flex-1 bg-[#2b3139] border border-[#474d57] rounded px-3 py-1.5 text-sm text-white outline-none"/><button onClick={handleUpdateProfile} className="bg-[#f0b90b] px-3 rounded text-black font-bold">更新</button></div></div>
                                 </div>
                                 <button onClick={() => resetAccount(true, true)} className="w-full py-2 bg-[#F23645]/10 border border-[#F23645]/50 text-[#F23645] rounded text-sm">重置模擬帳戶</button>
-                            </div>
-                        ) : activeTab === "fees" ? (
-                            <div className="space-y-6">
-                                <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]">
-                                    <label className="text-sm font-bold text-[#f0b90b] block mb-2">當前交易所 (影響新開單)</label>
-                                    <select value={selectedExchange} onChange={handleExchangeChange} className="w-full bg-[#1e2329] border border-[#474d57] rounded p-2.5 text-sm text-white outline-none">
-                                        <option value="Binance">Binance</option>
-                                        <option value="MEXC">MEXC</option>
-                                        <option value="OKX">OKX</option>
-                                        <option value="Pionex">Pionex</option>
-                                        <option value="Bybit">Bybit</option>
-                                        <option value="Bitget">Bitget</option>
-                                        <option value="Custom">Custom (自定義)</option>
-                                    </select>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-xs text-[#848e9c]">現貨 Maker %</label><input type="number" step="0.001" value={tempFees.spotMaker} onChange={(e)=>setTempFees({...tempFees, spotMaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded p-2 text-white outline-none"/></div>
-                                    <div><label className="text-xs text-[#848e9c]">現貨 Taker %</label><input type="number" step="0.001" value={tempFees.spotTaker} onChange={(e)=>setTempFees({...tempFees, spotTaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded p-2 text-white outline-none"/></div>
-                                </div>
-                                <button onClick={handleSaveFees} className="w-full py-3 bg-[#f0b90b] text-black font-bold rounded shadow-lg">儲存費率設定</button>
                             </div>
                         ) : (
                             <div className="flex flex-col h-full space-y-4">

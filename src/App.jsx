@@ -139,8 +139,25 @@ export default function App() {
       };
   }, [resize, stopResizing]);
 
+  // =================================================================
+  // 🔥 [核心修正] 監聽登入狀態：登出時強制重置所有數據
+  // =================================================================
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
+    const unsubscribe = onAuthStateChanged(auth, (u) => { 
+        setUser(u); 
+        
+        // 如果 u 為 null，代表使用者已登出
+        if (!u) {
+            setBalance(INITIAL_BALANCE); // 重置餘額
+            setPositions([]);            // 清空持倉
+            setOrders([]);               // 清空訂單
+            setHistory([]);              // 清空歷史
+            setKlineData([]);            // 清空K線數據
+            setActiveGridId(null);       // 清除選中的網格
+        }
+        
+        setAuthLoading(false); 
+    });
     return () => unsubscribe();
   }, []);
 
@@ -233,24 +250,16 @@ export default function App() {
     }
   }, [currentPrice, orders]);
 
-  // =================================================================
-  // 🔥 [核心修正 1] 切換幣種時，重置價格追蹤器
-  // 這能防止 "BTC 90000 -> ETH 3000" 被誤判為暴跌，導致開單瞬間產生巨額利潤
-  // =================================================================
+  // 切換幣種時重置價格追蹤器 (防止網格利潤暴增 Bug)
   useEffect(() => {
       lastPriceRef.current = 0;
   }, [symbol]);
 
-  // =================================================================
-  // 網格策略撮合引擎
-  // =================================================================
   useEffect(() => {
-    // 🔥 確保 currentPrice 有效且大於 0
     if (!currentPrice || currentPrice <= 0 || positions.length === 0) return;
 
     const prevPrice = lastPriceRef.current;
     
-    // 如果是第一次加載，或價格沒變，只更新 ref 並退出
     if (prevPrice === 0 || prevPrice === currentPrice) {
         lastPriceRef.current = currentPrice;
         return;
@@ -262,8 +271,6 @@ export default function App() {
     const updatedPositions = positions.map(pos => {
         if (pos.mode !== 'grid_spot' && pos.mode !== 'grid_futures') return pos;
 
-        // 🔥 [核心修正 2] 嚴格檢查：只處理「當前幣種」的網格
-        // 防止看 ETH 圖表時，錯誤地去撮合 BTC 的網格
         if (pos.symbol !== symbol) return pos;
 
         const lower = parseFloat(pos.gridLower);
@@ -280,7 +287,6 @@ export default function App() {
         
         for (let i = 1; i < levels; i++) {
             const gridLine = lower + (i * step);
-            // 判斷價格是否穿過網格線
             if (
                 (prevPrice < gridLine && currentPrice >= gridLine) || 
                 (prevPrice > gridLine && currentPrice <= gridLine)    
@@ -328,7 +334,7 @@ export default function App() {
     }
 
     lastPriceRef.current = currentPrice;
-  }, [currentPrice, positions, symbol]); // 🔥 加入 symbol 依賴
+  }, [currentPrice, positions, symbol]);
 
   useEffect(() => {
     let isMounted = true;
