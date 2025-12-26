@@ -1,10 +1,12 @@
 // src/components/PositionManagement/GridStrategyDetails.jsx
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, ShieldPlus, Target } from 'lucide-react';
+import { ArrowLeft, ShieldPlus, Target, Settings } from 'lucide-react';
 
 const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdateStrategy }) => {
 
     if (!grid) return null;
+
+    const isFutures = grid.mode === 'grid_futures';
 
     const [marginAdd, setMarginAdd] = useState("");
     const [tp, setTp] = useState(grid.tp || "");
@@ -23,9 +25,8 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
     const isProfit = totalProfit >= 0;
     const textColor = isProfit ? 'text-[#089981]' : 'text-[#F23645]';
 
-    // 🔥 [新增] 強平價顯示邏輯 (只在合約網格有效)
     const liqPrice = useMemo(() => {
-        if (grid.mode !== 'grid_futures' || !grid.entryPrice || !grid.size) return "--";
+        if (!isFutures || !grid.entryPrice || !grid.size) return "--";
         const entry = parseFloat(grid.entryPrice);
         const margin = parseFloat(grid.margin); 
         const size = parseFloat(grid.size);
@@ -39,7 +40,7 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
             return liq.toFixed(2);
         }
         return "--";
-    }, [grid]);
+    }, [grid, isFutures]);
 
     const { rows, buyCount, sellCount } = useMemo(() => {
         if (!grid.gridLower || !grid.gridUpper || !grid.gridLevels || !currentPrice) 
@@ -48,12 +49,16 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
         const lower = parseFloat(grid.gridLower);
         const upper = parseFloat(grid.gridUpper);
         const levels = parseInt(grid.gridLevels);
-        const step = (upper - lower) / levels;
+        
+        // 🔥 [修正] 使用 (levels - 1) 作為區間數，確保線數正確
+        const actualLevels = levels > 1 ? levels : 2; 
+        const step = (upper - lower) / (actualLevels - 1);
         
         const buys = [];
         const sells = [];
 
-        for (let i = 0; i <= levels; i++) {
+        // 🔥 [修正] 迴圈次數 = 線數，確保不顯示多餘的線
+        for (let i = 0; i < actualLevels; i++) {
             const price = lower + (i * step);
             if (price < currentPrice) {
                 const diff = ((price - currentPrice) / currentPrice) * 100;
@@ -64,7 +69,6 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
             }
         }
 
-        // 🔥 [修正] 排序邏輯：買單由高到低 (Index 1 最接近現價)，賣單由低到高 (Index 1 最接近現價)
         buys.sort((a, b) => b.price - a.price);
         sells.sort((a, b) => a.price - b.price);
 
@@ -97,7 +101,7 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
                     <span className="font-bold text-sm">返回交易面板</span>
                 </button>
                 <div className="ml-6 flex items-center gap-3">
-                    <h1 className="text-lg font-bold">{grid.symbol} {grid.mode === 'grid_spot' ? '現貨網格' : '合約網格'}</h1>
+                    <h1 className="text-lg font-bold">{grid.symbol} {isFutures ? '合約網格' : '現貨網格'}</h1>
                     <span className="text-xs bg-[#2b3139] border border-[#474d57] px-2 py-0.5 rounded text-[#848e9c]">運行中</span>
                 </div>
             </div>
@@ -115,8 +119,7 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
                         <div><div className="text-xs text-[#848e9c] mb-1">網格利潤</div><div className="text-sm font-bold text-[#089981]">+{realized.toFixed(4)}</div></div>
                         <div><div className="text-xs text-[#848e9c] mb-1">浮動盈虧</div><div className={`text-sm font-bold ${textColor}`}>{unrealized.toFixed(4)}</div></div>
                         
-                        {/* 🔥 [新增] 強平價顯示 (僅合約) */}
-                        {grid.mode === 'grid_futures' && (
+                        {isFutures && (
                             <div><div className="text-xs text-[#848e9c] mb-1">當前強平價</div><div className="text-sm font-bold text-[#f0b90b]">{liqPrice}</div></div>
                         )}
                         
@@ -126,18 +129,20 @@ const GridStrategyDetails = ({ grid, currentPrice, onBack, calculatePnL, onUpdat
                         <div><div className="text-xs text-[#848e9c] mb-1">投資額</div><div className="text-sm text-[#eaecef]">{grid.amount} USDT</div></div>
                     </div>
 
-                    {/* 🔥 [修正] 策略調整區：區分現貨與合約文字 */}
                     <div className="p-6">
                         <div className="text-sm font-bold text-[#f0b90b] mb-4 flex items-center gap-2">
-                            <ShieldPlus size={16}/> {grid.mode === 'grid_futures' ? '調整保證金 (降低強平價)' : '策略設定'}
+                            {isFutures ? <ShieldPlus size={16}/> : <Settings size={16}/>}
+                            {isFutures ? "調整保證金 (降低強平價)" : "策略設定 (止盈/止損)"}
                         </div>
+                        
                         <div className="space-y-4">
-                            {grid.mode === 'grid_futures' && (
+                            {isFutures && (
                                 <div>
                                     <label className="text-xs text-[#848e9c] mb-1 block">增加保證金 (USDT)</label>
                                     <input type="number" placeholder="輸入金額..." value={marginAdd} onChange={e=>setMarginAdd(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none focus:border-[#f0b90b]"/>
                                 </div>
                             )}
+
                             <div className="grid grid-cols-2 gap-3">
                                 <div><label className="text-xs text-[#848e9c] mb-1 block">止盈價格 (TP)</label><input type="number" placeholder="未設定" value={tp} onChange={e=>setTp(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none focus:border-[#089981]"/></div>
                                 <div><label className="text-xs text-[#848e9c] mb-1 block">止損價格 (SL)</label><input type="number" placeholder="未設定" value={sl} onChange={e=>setSl(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2 text-sm text-[#eaecef] outline-none focus:border-[#F23645]"/></div>

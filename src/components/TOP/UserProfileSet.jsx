@@ -46,7 +46,6 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         });
     }, [history, transSubTab]);
 
-    // 🔥 [核心修正] 針對不同類別生成客製化報表
     const handleExport = () => {
         const labels = { futures: "合約交易", spot: "現貨交易", grid_futures: "合約網格", grid_spot: "現貨網格" };
         const currentLabel = labels[transSubTab];
@@ -54,7 +53,9 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         const isFutures = transSubTab === 'futures';
         const isSpot = transSubTab === 'spot';
 
-        // 檢查是否有資料
+        // 判斷是「現貨網格」還是「合約網格」，用於調整標題
+        const isSpotGrid = transSubTab === 'grid_spot';
+
         const hasHistory = filteredHistory.length > 0;
         const hasHoldings = heldCoins && heldCoins.length > 0;
         if (!hasHistory && !(isSpot && hasHoldings)) {
@@ -66,12 +67,11 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         let csvRows = [];
 
         // =========================================================
-        // 1. 現貨報表 (Spot): 重點在「持倉資產」與「成本」
+        // 1. 現貨報表 (Spot)
         // =========================================================
         if (isSpot) {
-            // Part A: 持倉快照 (最重要)
-            const holdingHeaders = ["【當前持倉快照】", "幣種", "持倉數量", "平均成本", "當前市價", "總成本(USDT)", "當前市值(USDT)", "未實現盈虧(USDT)", "報酬率(%)"];
-            csvRows.push(holdingHeaders);
+            csvRows.push(["【當前持倉快照】"]); 
+            csvRows.push(["幣種", "持倉數量", "平均成本", "當前市價", "總成本(USDT)", "當前市值(USDT)", "未實現盈虧(USDT)", "報酬率(%)"]);
 
             if (hasHoldings) {
                 heldCoins.forEach(coin => {
@@ -86,7 +86,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                     }
 
                     csvRows.push([
-                        "-", coin.symbol, coin.quantity.toFixed(4), coin.avgPrice.toFixed(2), 
+                        coin.symbol, coin.quantity.toFixed(4), coin.avgPrice.toFixed(2), 
                         livePrice > 0 ? livePrice.toFixed(2) : "N/A",
                         totalCost.toFixed(2), livePrice > 0 ? marketValue.toFixed(2) : "-",
                         livePrice > 0 ? unrealizedPnL.toFixed(2) : "-",
@@ -96,11 +96,10 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
             } else {
                 csvRows.push(["無持有資產", "-", "-", "-", "-", "-", "-", "-", "-"]);
             }
-            csvRows.push([]); // 空行
+            csvRows.push([]); 
 
-            // Part B: 歷史成交
-            const histHeaders = ["【歷史成交紀錄】", "時間", "幣種", "方向", "成交價", "數量", "成交金額(USDT)", "手續費"];
-            csvRows.push(histHeaders);
+            csvRows.push(["【歷史成交紀錄】"]); 
+            csvRows.push(["時間", "幣種", "方向", "成交價", "數量", "成交金額(USDT)", "手續費"]);
             
             filteredHistory.forEach(item => {
                 const price = parseFloat(item.entryPrice || item.price || 0);
@@ -109,7 +108,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                 const fee = parseFloat(item.entryFee || 0);
                 
                 csvRows.push([
-                    "-", item.time, item.symbol, 
+                    item.time, item.symbol, 
                     (item.side === 'long' || item.side === 'buy') ? "買入" : "賣出",
                     price.toFixed(2), size.toFixed(4), amount.toFixed(2), fee.toFixed(4)
                 ]);
@@ -117,63 +116,61 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
         }
 
         // =========================================================
-        // 2. 合約報表 (Futures): 重點在「勝率」與「績效」
+        // 2. 合約報表 (Futures)
         // =========================================================
         else if (isFutures) {
-            // 計算績效數據
             let winCount = 0, lossCount = 0, totalProfit = 0, totalLoss = 0;
             let maxWin = 0, maxLoss = 0;
 
             const tradeRows = filteredHistory.map(item => {
-                const pnl = parseFloat(item.pnl || 0);
+                const realizedPnl = parseFloat(item.pnl || 0);
                 const fee = parseFloat(item.entryFee || 0) + parseFloat(item.fee || 0);
-                const netPnl = pnl - fee;
+                const netPnl = realizedPnl - fee;
 
-                if (netPnl > 0) { winCount++; totalProfit += netPnl; maxWin = Math.max(maxWin, netPnl); }
-                else { lossCount++; totalLoss += netPnl; maxLoss = Math.min(maxLoss, netPnl); }
-
-                // 計算持單時間 (天+時)
-                const openT = new Date(item.time);
-                const closeT = new Date(item.exitTime || item.time);
-                let dur = "-";
-                if (!isNaN(openT) && !isNaN(closeT)) {
-                    const diff = Math.max(0, closeT - openT);
-                    const d = Math.floor(diff / 86400000);
-                    const h = Math.floor((diff % 86400000) / 3600000);
-                    dur = `${d}天${h}時`;
+                if (netPnl > 0) { 
+                    winCount++; 
+                    totalProfit += netPnl; 
+                    maxWin = Math.max(maxWin, netPnl); 
+                } else { 
+                    lossCount++; 
+                    totalLoss += netPnl; 
+                    maxLoss = Math.min(maxLoss, netPnl); 
                 }
 
+                const openTimeStr = item.time ? item.time : "--";
+                const closeTimeStr = item.exitTime ? item.exitTime : "--";
+
                 return [
-                    item.exitTime, item.time, dur, item.symbol,
+                    openTimeStr,  
+                    closeTimeStr, 
+                    item.symbol,
                     item.side === 'long' ? "做多" : "做空",
                     (item.leverage || 1) + "x",
-                    parseFloat(item.entryPrice).toFixed(2),
-                    parseFloat(item.closePrice || item.price).toFixed(2),
-                    parseFloat(item.size).toFixed(4),
-                    fee.toFixed(4), netPnl.toFixed(2)
+                    parseFloat(item.entryPrice || 0).toFixed(2),
+                    parseFloat(item.closePrice || item.price || 0).toFixed(2),
+                    parseFloat(item.size || 0).toFixed(4),
+                    fee.toFixed(4) 
                 ];
             });
+
+            csvRows.push(["【詳細交易紀錄】"]); 
+            csvRows.push(["開倉時間", "平倉時間", "幣種", "方向", "槓桿", "開倉價", "平倉價", "數量", "手續費(USDT)"]);
+            csvRows = csvRows.concat(tradeRows);
+            csvRows.push([]); 
 
             const totalTrades = winCount + lossCount;
             const winRate = totalTrades > 0 ? ((winCount / totalTrades) * 100).toFixed(2) : "0.00";
             const netProfit = totalProfit + totalLoss;
-            const profitFactor = Math.abs(totalLoss) > 0 ? (totalProfit / Math.abs(totalLoss)).toFixed(2) : "∞";
 
-            // Part A: 績效總結
-            csvRows.push(["【交易績效總結】", "總交易次數", "勝率", "總獲利(USDT)", "總虧損(USDT)", "淨利潤(USDT)", "獲利因子", "最大單筆獲利", "最大單筆虧損"]);
-            csvRows.push(["-", totalTrades, winRate + "%", totalProfit.toFixed(2), totalLoss.toFixed(2), netProfit.toFixed(2), profitFactor, maxWin.toFixed(2), maxLoss.toFixed(2)]);
-            csvRows.push([]); 
-
-            // Part B: 詳細紀錄
-            csvRows.push(["【詳細交易紀錄】", "平倉時間", "開倉時間", "持單時間", "幣種", "方向", "槓桿", "開倉價", "平倉價", "數量", "手續費", "淨損益(USDT)"]);
-            csvRows = csvRows.concat(tradeRows);
+            csvRows.push(["【交易績效總結】"]);
+            csvRows.push(["總交易次數", "勝率", "總獲利(USDT)", "總虧損(USDT)", "淨利潤(USDT)", "最大單筆獲利", "最大單筆虧損"]);
+            csvRows.push([totalTrades, winRate + "%", totalProfit.toFixed(2), totalLoss.toFixed(2), netProfit.toFixed(2), maxWin.toFixed(2), maxLoss.toFixed(2)]);
         }
 
         // =========================================================
-        // 3. 網格報表 (Grid): 重點在「策略效率」與「套利統計」
+        // 3. 網格報表 (Grid - 包含現貨網格與合約網格)
         // =========================================================
         else if (isGrid) {
-            // 依幣種分組統計
             const strategyStats = {};
             
             filteredHistory.forEach(item => {
@@ -186,44 +183,56 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                 stats.count += 1;
                 stats.totalGridProfit += parseFloat(item.pnl || 0);
                 stats.totalFee += parseFloat(item.fee || 0);
-                // 更新時間範圍
                 if (new Date(item.time) < new Date(stats.startTime)) stats.startTime = item.time;
                 if (new Date(item.time) > new Date(stats.endTime)) stats.endTime = item.time;
             });
 
-            // Part A: 策略運行總表
-            csvRows.push(["【網格策略效率總表】", "策略幣種", "運行時間", "總套利次數", "總網格利潤(USDT)", "總手續費(USDT)", "平均單次利潤"]);
+            const gridTitle = isSpotGrid ? "【現貨網格策略績效總表】" : "【合約網格策略績效總表】";
+            csvRows.push([gridTitle]); 
+            csvRows.push(["策略幣種", "運行時間", "總套利次數", "總網格利潤(USDT)", "總手續費(USDT)", "平均單次利潤"]);
             
             Object.keys(strategyStats).forEach(sym => {
                 const s = strategyStats[sym];
-                // 計算大約運行天數
+                
                 const start = new Date(s.startTime);
                 const end = new Date(s.endTime);
-                const days = Math.max(1, Math.floor((end - start) / 86400000)); 
+                let durationStr = "1天內";
+                if (!isNaN(start) && !isNaN(end)) {
+                    const diffMs = Math.max(0, end - start);
+                    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    durationStr = `${days}天 ${hours}時`;
+                }
+
                 const avgProfit = s.count > 0 ? (s.totalGridProfit / s.count).toFixed(4) : 0;
 
                 csvRows.push([
-                    "-", sym, `${days}天`, s.count, 
-                    s.totalGridProfit.toFixed(4), s.totalFee.toFixed(4), avgProfit
+                    sym, 
+                    durationStr, 
+                    s.count, 
+                    s.totalGridProfit.toFixed(4), 
+                    s.totalFee.toFixed(4), 
+                    avgProfit
                 ]);
             });
-            csvRows.push([]);
+            csvRows.push([]); 
 
-            // Part B: 詳細撮合紀錄
-            csvRows.push(["【詳細撮合紀錄】", "成交時間", "幣種", "方向", "成交價", "成交數量", "成交金額", "網格利潤"]);
+            csvRows.push(["【詳細撮合流水紀錄 (Reference Only)】"]); 
+            csvRows.push(["成交時間", "幣種", "方向", "成交價", "成交數量", "成交金額", "網格利潤(USDT)"]);
+            
             filteredHistory.forEach(item => {
                 csvRows.push([
-                    "-", item.time, item.symbol,
+                    item.time, item.symbol,
                     (item.side === 'long' || item.side === 'buy') ? "買入" : "賣出",
-                    parseFloat(item.price).toFixed(2),
-                    parseFloat(item.size).toFixed(4),
-                    parseFloat(item.amount).toFixed(2),
-                    parseFloat(item.pnl).toFixed(4)
+                    // 🔥 [修正] 使用更穩健的方式讀取價格，防止 NaN
+                    parseFloat(item.price || item.entryPrice || 0).toFixed(2),
+                    parseFloat(item.size || 0).toFixed(4),
+                    parseFloat(item.amount || 0).toFixed(2),
+                    parseFloat(item.pnl || 0).toFixed(4)
                 ]);
             });
         }
 
-        // --- 產生 CSV ---
         const csvContent = "\uFEFF" + csvRows.map(e => e.join(",")).join("\n");
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
@@ -283,7 +292,7 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                     <div className="p-8 space-y-8 overflow-y-auto custom-scrollbar h-full">
                         {statusMsg.text && <div className={`p-3 rounded text-sm text-center ${statusMsg.type === "success" ? "bg-[#089981]/20 text-[#089981]" : "bg-[#F23645]/20 text-[#F23645]"}`}>{statusMsg.text}</div>}
                         
-                        {activeTab === "profile" ? (
+                        {activeTab === "profile" && (
                             <div className="space-y-6">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]"><div className="text-xs text-[#848e9c] mb-1">資產總額 (Equity)</div><div className="text-xl font-bold">{formatMoney(equity)}</div></div>
@@ -332,7 +341,32 @@ const UserProfileSet = ({ user, onClose, resetAccount, setUser, history = [], eq
                                 </div>
                                 <button onClick={() => resetAccount(true, true)} className="w-full py-2 bg-[#F23645]/10 border border-[#F23645]/50 text-[#F23645] rounded text-sm">重置模擬帳戶</button>
                             </div>
-                        ) : (
+                        )}
+
+                        {activeTab === "fees" && (
+                            <div className="space-y-6">
+                                <div className="bg-[#2b3139] p-4 rounded border border-[#474d57]">
+                                    <label className="text-sm font-bold text-[#f0b90b] block mb-2">當前交易所 (影響新開單)</label>
+                                    <select value={selectedExchange} onChange={handleExchangeChange} className="w-full bg-[#1e2329] border border-[#474d57] rounded p-2.5 text-sm text-white outline-none">
+                                        <option value="Binance">Binance</option>
+                                        <option value="MEXC">MEXC</option>
+                                        <option value="OKX">OKX</option>
+                                        <option value="Pionex">Pionex</option>
+                                        <option value="Bybit">Bybit</option>
+                                        <option value="Bitget">Bitget</option>
+                                        <option value="Custom">Custom (自定義)</option>
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-xs text-[#848e9c]">現貨 Maker %</label><input type="number" step="0.001" value={tempFees.spotMaker} onChange={(e)=>setTempFees({...tempFees, spotMaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded p-2 text-white outline-none"/></div>
+                                    <div><label className="text-xs text-[#848e9c]">現貨 Taker %</label><input type="number" step="0.001" value={tempFees.spotTaker} onChange={(e)=>setTempFees({...tempFees, spotTaker: parseFloat(e.target.value)})} className="w-full bg-[#2b3139] border border-[#474d57] rounded p-2 text-white outline-none"/></div>
+                                </div>
+                                <button onClick={handleSaveFees} className="w-full py-3 bg-[#f0b90b] text-black font-bold rounded shadow-lg">儲存費率設定</button>
+                            </div>
+                        )}
+
+                        {activeTab === "transactions" && (
                             <div className="flex flex-col h-full space-y-4">
                                 <div className="flex items-center justify-between border-b border-[#2b3139] pb-3">
                                     <div className="flex gap-2">

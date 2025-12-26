@@ -22,7 +22,7 @@ const TradingPanel = ({
     gridDirection, setGridDirection,
     gridLowerPrice, setGridLowerPrice,
     gridUpperPrice, setGridUpperPrice,
-    reserveMargin, setReserveMargin
+    // 🔥 [修正] 移除了 reserveMargin props
 }) => {
     // --- 內部 UI 狀態 ---
     const [showAdvanced, setShowAdvanced] = useState(false);
@@ -35,7 +35,7 @@ const TradingPanel = ({
     const [takeProfit, setTakeProfit] = useState("");
     const [slippage, setSlippage] = useState("0.1%");
 
-    // 🔥 [核心修正] 當幣種改變時，清空網格價格設定，防止 BTC 價格帶入 ETH 網格
+    // 當幣種改變時，清空網格價格設定
     useEffect(() => {
         setGridLowerPrice("");
         setGridUpperPrice("");
@@ -48,16 +48,18 @@ const TradingPanel = ({
         const count = parseInt(gridLevels);
         if (!lower || !upper || !count || lower >= upper || count < 2) return "--";
         
+        const intervalCount = count - 1;
+
         if (gridSpacingType === "arithmetic") {
             const priceDiff = upper - lower;
-            const step = priceDiff / count;
+            const step = priceDiff / intervalCount; 
             const avgPrice = (lower + upper) / 2;
             const rate = (step / avgPrice) * 100;
             const maxRate = (step / lower) * 100;
             const minRate = (step / upper) * 100;
             return `${minRate.toFixed(2)}% ~ ${maxRate.toFixed(2)}%`;
         } else {
-            const ratio = Math.pow(upper / lower, 1 / count);
+            const ratio = Math.pow(upper / lower, 1 / intervalCount);
             const rate = (ratio - 1) * 100;
             return `${rate.toFixed(2)}%`;
         }
@@ -88,13 +90,7 @@ const TradingPanel = ({
         return "--";
     }, [currentPrice, leverage, gridDirection, gridType, tradeMode, side, amount]);
 
-    const investmentSplit = useMemo(() => {
-        if (!amount || isNaN(amount)) return { invest: "--", margin: "--" };
-        const total = parseFloat(amount);
-        const marginPart = total * 0.15;
-        const investPart = total - marginPart;
-        return { invest: investPart.toFixed(2), margin: marginPart.toFixed(2) };
-    }, [amount]);
+    // 🔥 [修正] 移除了 investmentSplit 計算
 
     const spotInfo = useMemo(() => {
         const val = parseFloat(amount) || 0;
@@ -175,16 +171,34 @@ const TradingPanel = ({
                             <button onClick={()=>setGridType("futures")} className={`flex-1 py-1 text-xs rounded ${gridType==="futures"?"bg-[#474d57] text-white font-bold":"text-[#848e9c]"}`}>合約網格</button>
                         </div>
                         {gridType === "futures" && (
-                            <div className="grid grid-cols-3 gap-2">
-                                {["long", "short", "neutral"].map((d) => (
-                                    <button key={d} onClick={() => setGridDirection(d)} className={`py-1.5 text-xs rounded border transition-all ${gridDirection === d ? "border-[#f0b90b] text-[#f0b90b] bg-[#f0b90b]/10 font-bold" : "border-[#474d57] text-[#848e9c]"}`}>{d === "long" ? "做多" : d === "short" ? "做空" : "中性"}</button>
+                            <div className="grid grid-cols-2 gap-2">
+                                {["long", "short"].map((d) => (
+                                    <button key={d} onClick={() => setGridDirection(d)} className={`py-1.5 text-xs rounded border transition-all ${gridDirection === d ? "border-[#f0b90b] text-[#f0b90b] bg-[#f0b90b]/10 font-bold" : "border-[#474d57] text-[#848e9c]"}`}>{d === "long" ? "做多" : d === "short" ? "做空" : ""}</button>
                                 ))}
                             </div>
                         )}
                         <div><div className="text-xs font-bold text-[#eaecef] mb-2 border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">1.設定價格範圍</div><div className="flex gap-2"><div className="flex-1 relative"><input type="number" placeholder="最低價" value={gridLowerPrice} onChange={(e) => setGridLowerPrice(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2.5 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none text-center"/><span className="absolute right-2 top-3 text-[10px] text-[#5e6673]">USDT</span></div><div className="flex-1 relative"><input type="number" placeholder="最高價" value={gridUpperPrice} onChange={(e) => setGridUpperPrice(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2.5 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none text-center"/><span className="absolute right-2 top-3 text-[10px] text-[#5e6673]">USDT</span></div></div></div>
                         <div><div className="text-xs font-bold text-[#eaecef] mb-2 border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">2.設定網格數量 <span className="text-[#848e9c] font-normal">(2-200)</span></div><div className="relative mb-2"><input type="number" placeholder="網格個數" value={gridLevels} onChange={(e) => setGridLevels(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-2.5 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none"/></div><div className="text-[10px] text-[#848e9c] flex justify-between"><span>預估每次套利利潤率 :</span><span className="text-[#f0b90b]">{estimatedProfitRate}</span></div></div>
-                        <div><div className="flex justify-between items-center mb-2"><div className="text-xs font-bold text-[#eaecef] border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">3.輸入投資額</div><div className="flex items-center gap-1.5"><input type="checkbox" id="reserve" checked={reserveMargin} onChange={(e) => setReserveMargin(e.target.checked)} className="w-3 h-3 accent-[#f0b90b] cursor-pointer"/><label htmlFor="reserve" className="text-[10px] text-[#eaecef] cursor-pointer select-none">自動預留保證金</label></div></div><div className="relative mb-4"><input type="number" placeholder="投資額 (USDT)" value={amount} onChange={(e) => setAmount(e.target.value)} className={`w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-3 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none pr-12 ${reserveMargin ? "pb-7" : ""}`}/><div className="absolute right-2 top-2 bg-[#2b3139] px-2 py-1 rounded text-xs text-[#eaecef] font-bold border border-[#474d57] flex items-center gap-1">{leverage}x</div>{reserveMargin && (<div className="absolute bottom-1.5 left-3 text-[10px] text-[#5e6673] font-mono whitespace-nowrap overflow-hidden text-ellipsis w-[90%]">實際投資 ({investmentSplit.invest}) + 額外保證金 ({investmentSplit.margin}) USDT</div>)}</div></div>
-                        {gridType === "futures" && (<div className="px-1 mb-2"><input type="range" min="1" max="125" step="1" value={leverage} onChange={(e) => setLeverage(e.target.value)} className="w-full h-1 bg-[#474d57] rounded-lg appearance-none cursor-pointer accent-[#848e9c]" /><div className="flex justify-between text-[10px] text-[#5e6673] mt-1"><span>1x</span><span>20x</span><span>50x</span><span>100x</span><span>125x</span></div></div>)}<div className="text-[10px] text-[#848e9c] space-y-1 mt-3 pb-3 border-b border-[#2b3139]"><div className="flex justify-between"><span>可用資金:</span><span className="text-[#eaecef] font-bold">{balance.toFixed(2)} USDT</span></div><div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount ? (parseFloat(amount) * leverage).toFixed(2) : "0"} USDT</span></div><div className="flex justify-between"><span>預估強平價:</span><span className="text-[#f0b90b]">{estimatedLiqPrice} USDT</span></div></div>
+                        <div>
+                            {/* 🔥 [修正] 移除了「自動預留保證金」的標題欄 */}
+                            <div className="text-xs font-bold text-[#eaecef] mb-2 border-b border-dashed border-[#474d57] inline-block pb-0.5 cursor-help">3.輸入投資額</div>
+                            <div className="relative mb-4">
+                                {/* 🔥 [修正] 移除了 padding-bottom 的條件樣式 */}
+                                <input type="number" placeholder="投資額 (USDT)" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-[#0b0e11] border border-[#474d57] rounded px-3 py-3 text-sm text-[#eaecef] placeholder-[#5e6673] focus:border-[#f0b90b] outline-none pr-12"/>
+                                {gridType === "futures" && (
+                                    <div className="absolute right-2 top-2 bg-[#2b3139] px-2 py-1 rounded text-xs text-[#eaecef] font-bold border border-[#474d57] flex items-center gap-1">{leverage}x</div>
+                                )}
+                                {/* 🔥 [修正] 移除了顯示實際投資額的提示 */}
+                            </div>
+                        </div>
+                        {gridType === "futures" && (<div className="px-1 mb-2"><input type="range" min="1" max="125" step="1" value={leverage} onChange={(e) => setLeverage(e.target.value)} className="w-full h-1 bg-[#474d57] rounded-lg appearance-none cursor-pointer accent-[#848e9c]" /><div className="flex justify-between text-[10px] text-[#5e6673] mt-1"><span>1x</span><span>20x</span><span>50x</span><span>100x</span><span>125x</span></div></div>)}
+                        <div className="text-[10px] text-[#848e9c] space-y-1 mt-3 pb-3 border-b border-[#2b3139]">
+                            <div className="flex justify-between"><span>可用資金:</span><span className="text-[#eaecef] font-bold">{balance.toFixed(2)} USDT</span></div>
+                            {gridType === "futures" && (
+                                <div className="flex justify-between"><span>槓桿後實際投資額:</span><span className="text-[#eaecef]">{amount ? (parseFloat(amount) * leverage).toFixed(2) : "0"} USDT</span></div>
+                            )}
+                            <div className="flex justify-between"><span>預估強平價:</span><span className="text-[#f0b90b]">{estimatedLiqPrice} USDT</span></div>
+                        </div>
                         
                         <button onClick={onSubmit} className={`w-full py-3 rounded font-bold text-white text-sm shadow-lg transition-colors ${gridDirection === "long" ? "bg-[#089981] hover:bg-[#067a65]" : gridDirection === "short" ? "bg-[#F23645] hover:bg-[#c22b37]" : "bg-[#f0b90b] hover:bg-[#d9a506] text-black"}`}>{gridDirection === "long" ? "創建做多網格" : gridDirection === "short" ? "創建做空網格" : "創建中性網格"}</button>
                     </div>
@@ -229,9 +243,11 @@ const TradingPanel = ({
                                     </div>
                                 ) : (
                                     <div className="flex bg-[#2b3139] rounded p-0.5 mb-2">
-                                        <button onClick={() => setAmountType("usdt")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>
-                                            {side === 'long' ? '金額買入' : '金額賣出'}
-                                        </button>
+                                        {side === 'long' && (
+                                            <button onClick={() => setAmountType("usdt")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "usdt" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>
+                                                金額買入
+                                            </button>
+                                        )}
                                         <button onClick={() => setAmountType("coin")} className={`flex-1 py-1 text-[10px] rounded transition-colors ${amountType === "coin" ? "bg-[#474d57] text-white font-bold" : "text-[#848e9c]"}`}>
                                             {side === 'long' ? '數量買入' : '數量賣出'}
                                         </button>

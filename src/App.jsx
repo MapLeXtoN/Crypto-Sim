@@ -51,8 +51,9 @@ export default function App() {
 
   const [gridType, setGridType] = useState("spot"); 
   const [gridLevels, setGridLevels] = useState(10);
-  const [gridDirection, setGridDirection] = useState("neutral"); 
-  const [reserveMargin, setReserveMargin] = useState(false);
+  const [gridDirection, setGridDirection] = useState("long"); 
+  
+  // 🔥 [修正] 移除了 reserveMargin 狀態
   const [gridLowerPrice, setGridLowerPrice] = useState("");
   const [gridUpperPrice, setGridUpperPrice] = useState("");
   const [orderType, setOrderType] = useState("limit"); 
@@ -139,23 +140,17 @@ export default function App() {
       };
   }, [resize, stopResizing]);
 
-  // =================================================================
-  // 🔥 [核心修正] 監聽登入狀態：登出時強制重置所有數據
-  // =================================================================
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => { 
         setUser(u); 
-        
-        // 如果 u 為 null，代表使用者已登出
         if (!u) {
-            setBalance(INITIAL_BALANCE); // 重置餘額
-            setPositions([]);            // 清空持倉
-            setOrders([]);               // 清空訂單
-            setHistory([]);              // 清空歷史
-            setKlineData([]);            // 清空K線數據
-            setActiveGridId(null);       // 清除選中的網格
+            setBalance(INITIAL_BALANCE); 
+            setPositions([]);            
+            setOrders([]);               
+            setHistory([]);              
+            setKlineData([]);            
+            setActiveGridId(null);       
         }
-        
         setAuthLoading(false); 
     });
     return () => unsubscribe();
@@ -250,7 +245,6 @@ export default function App() {
     }
   }, [currentPrice, orders]);
 
-  // 切換幣種時重置價格追蹤器 (防止網格利潤暴增 Bug)
   useEffect(() => {
       lastPriceRef.current = 0;
   }, [symbol]);
@@ -279,13 +273,14 @@ export default function App() {
         
         if (currentPrice < lower || currentPrice > upper) return pos;
 
-        const step = (upper - lower) / levels;
-        const unitSize = pos.unitPerGrid || (pos.size / levels); 
+        const intervalCount = levels > 1 ? levels - 1 : 1; 
+        const step = (upper - lower) / intervalCount;
+        const unitSize = pos.unitPerGrid; 
         const profitPerOneMatch = unitSize * step; 
 
         let crossedLines = 0;
         
-        for (let i = 1; i < levels; i++) {
+        for (let i = 1; i < levels - 1; i++) {
             const gridLine = lower + (i * step);
             if (
                 (prevPrice < gridLine && currentPrice >= gridLine) || 
@@ -365,7 +360,6 @@ export default function App() {
     if (!currentPrice) return alert("價格載入中...");
     const { takeProfit, stopLoss } = advancedParams;
     
-    // --- 網格交易 ---
     if (tradeMode === "grid") {
         const lower = parseFloat(gridLowerPrice);
         const upper = parseFloat(gridUpperPrice);
@@ -377,11 +371,13 @@ export default function App() {
         }
         if (inv > balance) return alert("可用餘額不足");
 
+        const intervalCount = levels > 1 ? levels - 1 : 1; 
+
         const calculatedSize = gridType === "spot" 
             ? inv / currentPrice 
             : (inv * leverage) / currentPrice;
         
-        const unitPerGrid = calculatedSize / levels;
+        const unitPerGrid = calculatedSize / levels; 
         const pricePerGrid = inv / levels;
 
         const newGridPos = {
@@ -393,7 +389,7 @@ export default function App() {
             entryPrice: currentPrice,
             gridLower: lower,
             gridUpper: upper,
-            gridLevels: levels,
+            gridLevels: levels, 
             amount: inv,
             margin: inv, 
             size: calculatedSize,
@@ -415,14 +411,12 @@ export default function App() {
         return;
     }
     
-    // --- 合約交易 ---
     if (tradeMode === "futures") {
         const success = handleFuturesTrade({ side, amount, amountType, orderType, priceInput, leverage, futuresInputMode, takeProfit, stopLoss });
         if (success) setAmount("");
         return;
     }
 
-    // --- 現貨交易 (Spot) ---
     let executionPrice = currentPrice;
     if (orderType === "limit") {
         executionPrice = parseFloat(priceInput);
@@ -681,6 +675,7 @@ export default function App() {
         <ChartContainer symbol={symbol} timeframe={timeframe} setTimeframe={setTimeframe} klineData={klineData} currentPrice={currentPrice} loading={loading} apiError={apiError} showTimeMenu={showTimeMenu} setShowTimeMenu={setShowTimeMenu} favorites={favorites} toggleFavorite={toggleFavorite} activeGrid={activeGrid} />
         <div className="w-1 bg-[#2b3139] hover:bg-[#f0b90b] cursor-col-resize z-50 transition-colors" onMouseDown={startResizing}></div>
         <div ref={panelRef} style={{ width: `${panelWidth}px`, flexShrink: 0 }}>
+            {/* 🔥 [修正] 移除了 reserveMargin 相關 props */}
             <TradingPanel 
                 tradeMode={tradeMode} 
                 setTradeMode={setTradeMode} 
@@ -714,8 +709,7 @@ export default function App() {
                 setGridLowerPrice={setGridLowerPrice} 
                 gridUpperPrice={gridUpperPrice} 
                 setGridUpperPrice={setGridUpperPrice} 
-                reserveMargin={reserveMargin} 
-                setReserveMargin={setReserveMargin} 
+                // reserveMargin props 已移除
                 feeSettings={feeSettings} 
                 selectedExchange={selectedExchange} 
             />
@@ -747,7 +741,7 @@ export default function App() {
                    grid={activeGrid} 
                    currentPrice={currentPrice} 
                    onBack={() => setCurrentView("dashboard")} 
-                   calculatePnL={calculatePnL} 
+                   calculatePnL={calculatePnL}
                    onUpdateStrategy={updateGridStrategy}
                />
           </div>
